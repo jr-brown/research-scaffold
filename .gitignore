@@ -1,0 +1,15 @@
+local/
+**/*.aux
+**/*.log
+**/*.out
+**/*.pdf
+**/*.bbl
+**/*.blg
+**/*.png
+
+**/venv
+**/__pycache__
+**/wandb/
+**/.tensorboard_logs/
+**/.vscode
+
