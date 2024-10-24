@@ -7,5 +7,5 @@ Refactored by Lennie Wells, October 2024
 from beartype.claw import beartype_this_package
 beartype_this_package()
 
-from .src.config_tools import execute_experiments
+from config_tools import execute_experiments
 
