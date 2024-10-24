@@ -44,6 +44,7 @@ class Config:
     function_kwargs: Optional[StringKeyDict] = None
     function_args: Optional[list] = None
     log_file_path: Optional[str] = None
+    wandb_project: Optional[str] = None
 
     @property
     def d(self):
