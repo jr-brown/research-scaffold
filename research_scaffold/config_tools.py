@@ -303,7 +303,9 @@ def process_product_experiment_spec(
                 stem_sequence_with_common, expt_root, expt_patch
             )
             full_path_sequence = prepend_folder(full_stem_sequence, folder)
-            cfg = load_and_compose_config_steps(full_path_sequence)
+            cfg = load_and_compose_config_steps(
+                full_path_sequence, compositions={"name": lambda x, y: f"{x}_{y}"}
+            )
             configs.append(cfg)
 
     return configs
