@@ -16,14 +16,14 @@ from dataclasses import dataclass
 import wandb
 
 # Local
-from src.util import (
+from .util import (
     nones_to_empty_lists,
     nones_to_empty_dicts,
     get_time_stamp,
     recursive_dict_update,
     check_name_sub_general,
 )
-from src.file_io import load
+from .file_io import load
 
 
 log = logging.getLogger(__name__)
