@@ -14,3 +14,5 @@ local/
 **/.tensorboard_logs/
 **/.vscode
 
+# Distribution / packaging
+build/
