@@ -1,7 +1,8 @@
 auto_increment_rng_seed: false
 rng_seed_offset: 0
 
-folder: "jrs_example/configs/lennie"
+folder: "configs/lennie"
+# Note this should specify the config directory relative to where you execute the main.py file
 # Note can have multiple common roots and patches, but for now only have one
 common_root:
   - "root.yaml"

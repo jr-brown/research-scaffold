@@ -7,9 +7,12 @@ local/
 **/*.blg
 **/*.png
 
+**/*.egg-info
 **/venv
 **/__pycache__
 **/wandb/
 **/.tensorboard_logs/
 **/.vscode
 
+# Distribution / packaging
+build/
