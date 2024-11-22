@@ -34,9 +34,11 @@ FunctionMap = dict[str, Callable]
 ConfigPathOrMultiple = Union[str, list[str]]
 ConfigPathAxes = list[ConfigPathOrMultiple]
 
+
 @dataclass
 class Config:
     """Type definition for a Config."""
+
     name: str
     function_name: str
     # Fields with defaults
@@ -45,6 +47,7 @@ class Config:
     function_args: Optional[list] = None
     log_file_path: Optional[str] = None
     wandb_project: Optional[str] = None
+    wandb_entity: Optional[str] = None
 
     @property
     def d(self):
@@ -55,6 +58,7 @@ class Config:
 @dataclass
 class ProductExperimentSpec:
     """Type definition for a ProductExperimentSpec."""
+
     # Note that optional means that field can be None; but have no default values
     # (no defaults needed because this will always be constructed by read_experiment_set)
     repeats: int
@@ -66,6 +70,7 @@ class ProductExperimentSpec:
 @dataclass
 class MetaConfig:
     """Type definition for a MetaConfig."""
+
     experiments: list[ProductExperimentSpec]
     folder: Optional[str]
     common_root: Optional[str | list[str]]
@@ -376,4 +381,3 @@ def execute_experiments(
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")
         execute_from_config(config, function_map=function_map, **config.d)
-
