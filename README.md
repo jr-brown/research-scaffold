@@ -7,7 +7,7 @@ Import `execute_experiments` to get started.
 # Example explained
 
 The main package part of the research scaffold is designed to be flexible.
-It is intended to be used as in the example directory.
+It is intended to be used as demonstrated in the example directory.
 
 To run this, first navigate to inside the example directory and then...
 
