@@ -8,4 +8,5 @@ from beartype.claw import beartype_this_package
 beartype_this_package()
 
 from .config_tools import execute_experiments
+from .util import get_logger
 

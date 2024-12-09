@@ -8,6 +8,18 @@ from typing import Optional, TypeVar
 from datetime import datetime
 
 
+def get_logger(*args, **kwargs):
+    try:
+        from accelerate import PartialState
+        from accelerate.logging import get_logger
+        PartialState()  # Just to make sure it exists, is duplication of this cursed?
+        return get_logger(*args, **kwargs)
+
+    except ModuleNotFoundError:
+        import logging
+        return logging.getLogger(*args, **kwargs)
+
+
 def nones_to_empty_lists(*args: Optional[list]) -> list[list]:
     """Accepts any number of arguments and returns list of arguments.
     Arguments should each be list or None, and Nones are replaced by empty lists."""

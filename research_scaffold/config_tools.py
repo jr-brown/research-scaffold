@@ -17,6 +17,7 @@ import wandb
 
 # Local
 from .util import (
+    get_logger,
     nones_to_empty_lists,
     nones_to_empty_dicts,
     get_time_stamp,
@@ -26,7 +27,8 @@ from .util import (
 from .file_io import load
 
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
+
 
 ### Type definitions
 StringKeyDict = dict[str, Any]
@@ -147,7 +149,7 @@ def load_meta_config(meta_cfg_path: str) -> MetaConfig:
         common_patch=mc_dict.get("common_patch", None),
         auto_increment_rng_seed=mc_dict.get("auto_increment_rng_seed", False),
         rng_seed_offset=mc_dict.get("rng_seed_offset", 0),
-        folder=mc_dict.get("folder"),
+        folder=mc_dict.get("folder", ""),
     )
 
 
