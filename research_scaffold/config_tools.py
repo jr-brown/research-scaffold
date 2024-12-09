@@ -17,6 +17,7 @@ import wandb
 
 # Local
 from .util import (
+    is_main_process,
     get_logger,
     nones_to_empty_lists,
     nones_to_empty_dicts,
@@ -208,7 +209,7 @@ def execute_from_config(
 
     log.info(f"Made {n_subs} substitutions of {run_name_dummy} for {name}")
 
-    if wandb_project is not None:
+    if wandb_project is not None and is_main_process:
         group_name = wandb_group_name if wandb_group_name is not None else name_base
 
         with wandb.init(
