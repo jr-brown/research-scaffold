@@ -7,6 +7,20 @@ from copy import deepcopy
 from typing import Optional, TypeVar
 from datetime import datetime
 
+try:
+    from accelerate import PartialState
+    from accelerate.logging import get_logger as _get_logger
+    accelerate_partial_state = PartialState()
+    is_main_process = accelerate_partial_state.is_main_process
+
+except ModuleNotFoundError:
+    from logging import getLogger as _get_logger
+    is_main_process = True  # Do we want this to cover JAX parallelism as well?
+
+
+def get_logger(*args, **kwargs):
+    return _get_logger(*args, **kwargs)
+
 
 def nones_to_empty_lists(*args: Optional[list]) -> list[list]:
     """Accepts any number of arguments and returns list of arguments.

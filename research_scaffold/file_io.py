@@ -5,7 +5,6 @@ Provides utility functions for file input/output.
 import yaml
 import json
 import pickle
-import logging
 
 from os import path, remove
 from time import sleep
@@ -14,8 +13,9 @@ from typing import Callable, Union, TypeVar
 from pathlib import Path
 from functools import partial
 
+from .util import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 A = TypeVar("A")

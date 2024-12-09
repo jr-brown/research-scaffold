@@ -17,6 +17,8 @@ import wandb
 
 # Local
 from .util import (
+    is_main_process,
+    get_logger,
     nones_to_empty_lists,
     nones_to_empty_dicts,
     get_time_stamp,
@@ -26,7 +28,8 @@ from .util import (
 from .file_io import load
 
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
+
 
 ### Type definitions
 StringKeyDict = dict[str, Any]
@@ -147,7 +150,7 @@ def load_meta_config(meta_cfg_path: str) -> MetaConfig:
         common_patch=mc_dict.get("common_patch", None),
         auto_increment_rng_seed=mc_dict.get("auto_increment_rng_seed", False),
         rng_seed_offset=mc_dict.get("rng_seed_offset", 0),
-        folder=mc_dict.get("folder"),
+        folder=mc_dict.get("folder", ""),
     )
 
 
@@ -206,7 +209,7 @@ def execute_from_config(
 
     log.info(f"Made {n_subs} substitutions of {run_name_dummy} for {name}")
 
-    if wandb_project is not None:
+    if wandb_project is not None and is_main_process:
         group_name = wandb_group_name if wandb_group_name is not None else name_base
 
         with wandb.init(
