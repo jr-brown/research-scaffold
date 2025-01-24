@@ -1,0 +1,13 @@
+name: "simple_config_test"
+time_stamp_name: true
+function_name: "test_simple_config"
+wandb_project: "research_scaffold_test"
+wandb_tags:
+  - "tag1"
+  - "tag2"
+
+function_kwargs:
+  dummy_str: "foo"
+  dummy_int: 4
+  dummy_bool: true
+
