@@ -76,8 +76,8 @@ if __name__ == "__main__":
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 # Local
-from example.functions.jason_examples import test_simple_config, test_log_levels
-from example.functions.lennie_examples import test_multi_arg_config
+from functions.jason_examples import test_simple_config, test_log_levels
+from functions.lennie_examples import test_multi_arg_config
 from research_scaffold import execute_experiments
 
 log = logging.getLogger(__name__)

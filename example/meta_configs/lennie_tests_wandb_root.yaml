@@ -1,6 +1,6 @@
-### Original meta-config test
-# This should run near-instantaneously
-# wandb version at lennie_tests_wandb_root takes far longer
+### This was copied from lennie_tests.yaml
+# Then performed minimal edit to use wandb by taking the root_wandb.yaml option
+# This appears to 'activate' wandb by specifying 'wandb_project'
 
 auto_increment_rng_seed: false
 rng_seed_offset: 0
@@ -9,7 +9,7 @@ folder: "configs/lennie"
 # Note this should specify the config directory relative to where you execute the main.py file
 # Note can have multiple common roots and patches, but for now only have one
 common_root:
-  - "root.yaml"
+  - "root_wandb.yaml"
 common_patch:
   - "patch.yaml"
 
