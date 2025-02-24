@@ -51,6 +51,7 @@ class Config:
     log_file_path: Optional[str] = None
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
+    wandb_group: Optional[str] = None
     wandb_tags: Optional[list[str]] = None
 
     @property
@@ -164,7 +165,7 @@ def execute_from_config(
     name: str = "unamed",
     time_stamp_name: bool = False,
     wandb_project: Optional[str] = None,
-    wandb_group_name: Optional[str] = None,
+    wandb_group: Optional[str] = None,
     wandb_entity: Optional[str] = None,
     wandb_tags: Optional[list[str]] = None,
     log_file_path: Optional[str] = None,
@@ -212,7 +213,7 @@ def execute_from_config(
     log.info(f"Made {n_subs} substitutions of {run_name_dummy} for {name}")
 
     if wandb_project is not None and is_main_process:
-        group_name = wandb_group_name if wandb_group_name is not None else name_base
+        group_name = wandb_group if wandb_group is not None else name_base
 
         with wandb.init(
             entity=wandb_entity,
