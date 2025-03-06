@@ -1,2 +1,5 @@
+wandb_tags:
+  - "patched"
+
 function_kwargs:
   patch_arg: "read from patch.yaml"

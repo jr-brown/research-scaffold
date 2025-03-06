@@ -52,6 +52,8 @@ class Config:
     log_file_path: Optional[str] = None
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
+    wandb_group: Optional[str] = None
+    wandb_tags: Optional[list[str]] = None
 
     @property
     def d(self):
@@ -164,8 +166,9 @@ def execute_from_config(
     name: str = "unamed",
     time_stamp_name: bool = False,
     wandb_project: Optional[str] = None,
-    wandb_group_name: Optional[str] = None,
+    wandb_group: Optional[str] = None,
     wandb_entity: Optional[str] = None,
+    wandb_tags: Optional[list[str]] = None,
     log_file_path: Optional[str] = None,
     run_name_dummy: str = "RUN_NAME",
 ):
@@ -211,11 +214,12 @@ def execute_from_config(
     log.info(f"Made {n_subs} substitutions of {run_name_dummy} for {name}")
 
     if wandb_project is not None and is_main_process:
-        group_name = wandb_group_name if wandb_group_name is not None else name_base
+        group_name = wandb_group if wandb_group is not None else name_base
 
         with wandb.init(
             entity=wandb_entity,
             project=wandb_project,
+            tags=wandb_tags,
             name=name,
             group=group_name,
             config=function_kwargs,
@@ -315,7 +319,11 @@ def process_product_experiment_spec(
             )
             full_path_sequence = prepend_folder(full_stem_sequence, folder)
             cfg = load_and_compose_config_steps(
-                full_path_sequence, compositions={"name": lambda x, y: f"{x}_{y}"}
+                full_path_sequence,
+                compositions={
+                    "name": lambda x, y: f"{x}_{y}",
+                    "wandb_tags": lambda x, y: x + y,  # string concatenation
+                },
             )
             configs.append(cfg)
 
