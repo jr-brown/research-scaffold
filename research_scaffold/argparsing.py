@@ -34,7 +34,7 @@ def get_base_argparser() -> argparse.ArgumentParser:
     return parser
 
 
-def process_base_args(args) -> tuple[str, str]:
+def process_base_args(args) -> tuple[str | None, str | None]:
     logging.basicConfig(
         level=args.loglevel.upper(),
         format="%(asctime)s %(module)-15s %(levelname)-8s %(message)s",
