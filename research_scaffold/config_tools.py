@@ -13,7 +13,12 @@ from functools import partial
 from dataclasses import dataclass
 
 # Third Party
-import jax
+try:
+    import jax
+    has_jax = True
+except ModuleNotFoundError:
+    has_jax = False
+
 import wandb
 
 # Local
@@ -229,7 +234,8 @@ def execute_from_config(
     else:
         function_map[function_name](*function_args, **function_kwargs)
 
-    jax.clear_caches()
+    if has_jax:
+        jax.clear_caches()
 
     if file_log_cleanup_fn is not None:
         file_log_cleanup_fn()
