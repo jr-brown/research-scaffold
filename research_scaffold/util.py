@@ -4,7 +4,7 @@ Generic Utility Functions
 
 from re import search, subn
 from copy import deepcopy
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Callable
 from datetime import datetime
 
 try:
@@ -50,6 +50,8 @@ def get_time_stamp(include_seconds: bool = False) -> str:
 
 # generic TypeVar to show consistency of input and output types for type hinting
 A = TypeVar("A")
+B = TypeVar("B")
+C = TypeVar("C")
 
 
 def check_name_sub_general(
@@ -125,3 +127,21 @@ def recursive_dict_update(
             new[k] = v
 
     return new
+
+
+def dmap(f: Callable[[B], C], d: dict[A, B]) -> dict[A, C]:
+    return {k: f(v) for k, v in d.items()}
+
+
+def key_list_get(_dict: dict, keys: list):
+    if len(keys) == 0:
+        raise Exception("Empty keys")
+
+    elif len(keys) == 1:
+        return _dict[keys[0]]
+
+    else:
+        k = keys[0]
+        next_keys = keys[1:]
+        return key_list_get(_dict[k], next_keys)
+
