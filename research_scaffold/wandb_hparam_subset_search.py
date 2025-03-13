@@ -4,7 +4,8 @@ import logging
 import numpy as np
 
 from tqdm import tqdm
-from typing import TypeVar, Generic, Callable
+from pprint import pformat
+from typing import TypeVar, Generic
 from dataclasses import dataclass
 
 from wandb.apis.public.runs import Run
@@ -105,57 +106,57 @@ def check_run_parameter(
     return check_parameter_val(param_bounds, key_list_get(run.config, composite_key.split('/')))
 
 
-def filter_runs(runs: list[Run], bounds: dict[str, ParameterBounds]) -> list[Run]:
-    return [
-        run
-        for run in tqdm(runs, desc="Filtering runs", leave=False)
+def filter_runs(
+    runs: dict[str, tuple[Run, float]],
+    bounds: dict[str, ParameterBounds]
+) -> dict[str, tuple[Run, float]]:
+
+    return {
+        r_id: (run, r_score)
+        for r_id, (run, r_score) in tqdm(runs.items(), desc="Filtering runs", leave=False)
         if all(check_run_parameter(run, k, v) for k, v in bounds.items())
-    ]
+    }
 
 
-def avg_run_score(
-    metric_fn: Callable[[Run], float],
-    runs: list[Run],
-    return_sum_if_positive: bool=False,
-    offset: float=0,
+def get_normed_total_run_score(
+    runs: dict[str, tuple[Run, float]],
+    mean_score: float=0.0,
 ) -> float:
 
     if len(runs) > 0:
-        avg_score = (sum([metric_fn(r) for r in runs]) / len(runs)) + offset
-        if return_sum_if_positive and (avg_score > 0):
-            return avg_score * len(runs)
-        else:
-            return avg_score
+        return np.sum([score - mean_score for _, score in runs.values()]).item()
     else:
-        return -np.inf
+        return 0.0
+
+
+def avg_run_score(
+    runs: dict[str, tuple[Run, float]],
+) -> float:
+    return np.mean([score for _, score in runs.values()]).item()
 
 
 def score_options(
-    runs: list[Run],
+    runs: dict[str, tuple[Run, float]],
     composite_key: str,
     param_opts: ParameterOptions[PB],
-    metric_fn: Callable[[Run], float],
 ) -> ScoredParameterOptions[PB]:
 
     total_b, top_b, mid_b, bot_b = param_opts.unpack()
-    avg_score = -avg_run_score(metric_fn, runs)
 
-    def get_score(b: PB) -> float:
-        return avg_run_score(
-            metric_fn,
-            filter_runs(runs, {composite_key: b}),
-            offset=avg_score,
-            return_sum_if_positive=True,
-        )
+    top_runs = filter_runs(runs, {composite_key: top_b})
+    mid_runs = filter_runs(runs, {composite_key: mid_b})
+    bot_runs = filter_runs(runs, {composite_key: bot_b})
+
+    avg_score = avg_run_score(runs)
+    top_score = get_normed_total_run_score(top_runs, avg_score)
+    mid_score = get_normed_total_run_score(mid_runs, avg_score)
+    bot_score = get_normed_total_run_score(bot_runs, avg_score)
 
     return ScoredParameterOptions(
         total_b,
-        top_b,
-        get_score(top_b),
-        mid_b,
-        get_score(mid_b),
-        bot_b,
-        get_score(bot_b,)
+        top_b, top_score,
+        mid_b, mid_score,
+        bot_b, bot_score,
     )
 
 
@@ -173,12 +174,12 @@ def trim_redundant_leading_key_parts(_dict):
 
 
 def best_scores_to_str(best_scores: dict[str, float]) -> str:
-    return '\n'.join(f"  {k}:\n    {v}" for k, v in trim_redundant_leading_key_parts(best_scores).items())
+    return '\n'.join(f"  {k}:\n    {v:.5g}" for k, v in trim_redundant_leading_key_parts(best_scores).items())
 
 
 def take_best(scored_opts: dict[str, ScoredParameterOptions]) -> dict[str, ParameterBounds]:
     best_scores = dmap(best_score, scored_opts)
-    log.info(f"Best relative scores:\n{best_scores_to_str(best_scores)}")
+    log.info(f"Best parameter scores:\n{best_scores_to_str(best_scores)}")
     best_param = sorted(best_scores.items(), key=lambda kv: kv[1])[-1][0]
     to_return = {k: best_bounds(v) if k == best_param else v.total
                  for k, v in scored_opts.items()}
@@ -219,7 +220,7 @@ def generate_options(param_bounds: PB) -> ParameterOptions[PB]:
 
 def fit_search_space(
     search_space: dict[str, ParameterBounds],
-    runs: list[Run]
+    runs: dict[str, tuple[Run, float]]
 ) -> dict[str, ParameterBounds]:
 
     new_space = {}
@@ -227,7 +228,7 @@ def fit_search_space(
     for key, bounds in search_space.items():
         # Extract the parameter values from all runs
         param_values = []
-        for run in runs:
+        for run, _ in runs.values():
             try:
                 val = key_list_get(run.config, key.split('/'))
                 param_values.append(val)
@@ -291,7 +292,11 @@ def search_space_to_str(search_space: dict[str, ParameterBounds]) -> str:
     return '\n'.join(f"  {k}:\n    {v}" for k, v in trim_redundant_leading_key_parts(search_space).items())
 
 
-def recursive_parameter_parse(cfg: dict) -> dict[str, ParameterBounds]:
+def recursive_parameter_parse(
+    cfg: dict,
+    ignored_keys: list[str] | None = None,
+) -> dict[str, ParameterBounds]:
+
     out_d = {}
 
     for k1, v1 in cfg.items():
@@ -301,6 +306,10 @@ def recursive_parameter_parse(cfg: dict) -> dict[str, ParameterBounds]:
         else:
             out_d[k1] = parse_parameter_config(v1)
 
+    if ignored_keys is not None:
+        for k in ignored_keys:
+            out_d.pop(k, None)
+
     return out_d
 
 
@@ -309,6 +318,9 @@ def wandb_hparam_subset_search(
     wandb_project: str,
     sweep_id: str,
     iters: int,
+    metric_cfg_name_override: str | None = None,
+    metric_cfg_goal_override: str | None = None,
+    ignored_keys: list[str] | None = None,
 ):
     log.info(f"Fetching sweep")
     api = wandb.Api()
@@ -316,44 +328,63 @@ def wandb_hparam_subset_search(
 
     def metric_fn(run) -> float:
         metric_cfg = sweep.config["metric"]
+        metric_name = metric_cfg_name_override or metric_cfg["name"]
+        metric_goal = metric_cfg_goal_override or metric_cfg["goal"]
 
-        if metric_cfg["goal"] == "maximize":
+        if metric_goal == "maximize":
             mult = 1.0
-        elif metric_cfg["goal"] == "minimize":
+        elif metric_goal == "minimize":
             mult = -1.0
         else:
             raise ValueError
 
-        return mult * run.summary[metric_cfg["name"]]
+        return mult * run.summary[metric_name]
 
     log.info(f"Parsing parameter space")
-    search_space = recursive_parameter_parse(sweep.config["parameters"])
-    runs = [r for r in tqdm(sweep.runs, desc="Fetching runs") if r.state == "finished"]
+    search_space = recursive_parameter_parse(
+        sweep.config["parameters"],
+        ignored_keys=ignored_keys,
+    )
+    runs = {
+        r.id: (r, metric_fn(r))
+        for r in tqdm(sweep.runs, desc="Fetching runs")
+        if r.state == "finished"
+    }
     runs = filter_runs(runs, search_space)
     search_space = fit_search_space(search_space, runs)
+    current_avg_score = avg_run_score(runs)
 
     log.info(f"""Start stats:
 {len(runs)=}
-{avg_run_score(metric_fn, runs)=}
+{current_avg_score=}
 search_space:
 {search_space_to_str(search_space)}""")
 
-    for _ in tqdm(range(iters), leave=False):
+    for _ in tqdm(range(iters), desc="Iteration", leave=False):
         if len(runs) == 1:
             log.info("Only one run left, terminating...")
             break
 
-        # pprint(search_space)
-        # print(len(runs))
+        max_score = np.sum([max(score - current_avg_score, 0) for _, score in runs.values()])
+
+        log.info(f"Best possible score: {max_score:.5g}")
         options = dmap(generate_options, search_space)
-        # pprint(options)
-        scored_opts = {k: score_options(runs, k, v, metric_fn) for k, v in options.items()}
-        # pprint(scored_opts)
+        scored_opts = {
+            k: score_options(runs, k, v)
+            for k, v in tqdm(options.items(), desc="Scoring options", leave=False)
+        }
+        log.debug(pformat(scored_opts))
         search_space = take_best(scored_opts)
         runs = filter_runs(runs, search_space)
-        log.info(f"New stats:\n{len(runs)=}\n{avg_run_score(metric_fn, runs)=}")  # \nsearch_space={search_space_to_str(search_space)}")
+        current_avg_score = avg_run_score(runs)
+        search_space = fit_search_space(search_space, runs)
+
+        log.info(f"""New stats:
+{len(runs)=}
+{current_avg_score=}
+search_space:
+{search_space_to_str(search_space)}""")
 
     log.info("Sweep finished")
     log.info(f"Final space:\n{search_space_to_str(search_space)}")
-    log.info(f"Fitted final space:\n{search_space_to_str(fit_search_space(search_space, runs))}")
 
