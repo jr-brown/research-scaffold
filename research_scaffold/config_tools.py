@@ -176,20 +176,25 @@ def execute_from_config(
     wandb_tags: Optional[list[str]] = None,
     log_file_path: Optional[str] = None,
     run_name_dummy: str = "RUN_NAME",
+    run_group_dummy: str = "RUN_GROUP",
 ):
     """
     Executes a function from a Config object.
     """
-    check_name_sub = partial(check_name_sub_general, run_name_dummy=run_name_dummy)
 
     name_base = name
+    group = wandb_group if wandb_group is not None else name_base
 
     if time_stamp_name:
         name = f"{name}_{get_time_stamp(include_seconds=True)}"
 
+    check_name_sub = partial(check_name_sub_general, new_name=name, run_name_dummy=run_name_dummy)
+    check_group_sub =  partial(check_name_sub_general, new_name=group, run_name_dummy=run_group_dummy)
+
     # Add handler to log to file if necessary
     if log_file_path is not None:
-        log_file_path, n_subs = check_name_sub(name, log_file_path, count=0)
+        log_file_path, n_name_subs = check_name_sub(log_file_path, count=0)
+        log_file_path, n_group_subs = check_group_sub(log_file_path, count=0)
 
         log_dir = path.dirname(log_file_path)
 
@@ -202,8 +207,10 @@ def execute_from_config(
         file_handler.setFormatter(root_logger.handlers[0].formatter)
         root_logger.addHandler(file_handler)
         file_log_cleanup_fn = lambda: root_logger.removeHandler(file_handler)
+
     else:
-        n_subs = 0
+        n_name_subs = 0
+        n_group_subs = 0
         file_log_cleanup_fn = None
 
     log.info("========== Config Dict ===========\n" + pformat(config))
@@ -212,21 +219,21 @@ def execute_from_config(
     (function_args,) = nones_to_empty_lists(function_args)
     (function_kwargs,) = nones_to_empty_dicts(function_kwargs)
 
-    # Substitute occurrences of RUN_NAME for the run name
-    function_args, n_subs = check_name_sub(name, function_args, count=n_subs)
-    function_kwargs, n_subs = check_name_sub(name, function_kwargs, count=n_subs)
+    # Substitute occurrences of RUN_NAME and RUN_GROUP for the run name and group respectively
+    function_args, n_name_subs = check_name_sub(function_args, count=n_name_subs)
+    function_args, n_group_subs = check_group_sub(function_args, count=n_group_subs)
+    function_kwargs, n_name_subs = check_name_sub(function_kwargs, count=n_name_subs)
+    function_kwargs, n_group_subs = check_group_sub(function_kwargs, count=n_group_subs)
 
-    log.info(f"Made {n_subs} substitutions of {run_name_dummy} for {name}")
+    log.info(f"Made {n_name_subs} substitutions of {run_name_dummy} for {name}")
 
     if wandb_project is not None and is_main_process:
-        group_name = wandb_group if wandb_group is not None else name_base
-
         with wandb.init(
             entity=wandb_entity,
             project=wandb_project,
             tags=wandb_tags,
             name=name,
-            group=group_name,
+            group=group,
             config=function_kwargs,
         ):  # type: ignore
             function_map[function_name](*function_args, **function_kwargs)
