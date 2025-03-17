@@ -226,6 +226,7 @@ def execute_from_config(
     function_kwargs, n_group_subs = check_group_sub(function_kwargs, count=n_group_subs)
 
     log.info(f"Made {n_name_subs} substitutions of {run_name_dummy} for {name}")
+    log.info(f"Made {n_group_subs} substitutions of {run_group_dummy} for {group}")
 
     if wandb_project is not None and is_main_process:
         with wandb.init(
