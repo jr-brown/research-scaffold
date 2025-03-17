@@ -55,7 +55,7 @@ C = TypeVar("C")
 
 
 def check_name_sub_general(
-    new_name: str, _x: A, count: int = 0, run_name_dummy: str = "RUN_NAME",
+    _x: A, new_name: str, count: int = 0, run_name_dummy: str = "RUN_NAME",
 ) -> tuple[A, int]:
     """Counts occurrences of run_name_dummy and substitutes these name.
     If _x is a dict or list, this is done recursively."""
