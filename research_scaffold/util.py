@@ -145,3 +145,9 @@ def key_list_get(_dict: dict, keys: list):
         next_keys = keys[1:]
         return key_list_get(_dict[k], next_keys)
 
+
+def merge_dicts(*args: dict) -> dict:
+    _dict = dict()
+    for arg in args:
+        _dict.update(arg)
+    return _dict

@@ -65,7 +65,7 @@ class ScoredParameterOptions(Generic[PB]):
     bot_score: float
 
 
-def best_bounds(scored_opt: ScoredParameterOptions[PB]) -> PB:
+def _best_bounds(scored_opt: ScoredParameterOptions[PB]) -> PB:
     score_pairs = [
         (scored_opt.top_score, scored_opt.top),
         (scored_opt.mid_score, scored_opt.mid),
@@ -75,11 +75,11 @@ def best_bounds(scored_opt: ScoredParameterOptions[PB]) -> PB:
     return best_bounds
 
 
-def best_score(scored_opt: ScoredParameterOptions) -> float:
+def _best_score(scored_opt: ScoredParameterOptions) -> float:
     return max(scored_opt.top_score, scored_opt.mid_score, scored_opt.bot_score)
 
 
-def check_parameter_val(
+def _check_parameter_val(
     param_bounds: ParameterBounds,
     val
 ) -> bool:
@@ -98,15 +98,15 @@ def check_parameter_val(
         raise ValueError(f"{param_bounds=} bad type")
 
 
-def check_run_parameter(
+def _check_run_parameter(
     run: Run,
     composite_key: str,
     param_bounds: ParameterBounds
 ) -> bool:
-    return check_parameter_val(param_bounds, key_list_get(run.config, composite_key.split('/')))
+    return _check_parameter_val(param_bounds, key_list_get(run.config, composite_key.split('/')))
 
 
-def filter_runs(
+def _filter_runs(
     runs: dict[str, tuple[Run, float]],
     bounds: dict[str, ParameterBounds]
 ) -> dict[str, tuple[Run, float]]:
@@ -114,11 +114,11 @@ def filter_runs(
     return {
         r_id: (run, r_score)
         for r_id, (run, r_score) in tqdm(runs.items(), desc="Filtering runs", leave=False)
-        if all(check_run_parameter(run, k, v) for k, v in bounds.items())
+        if all(_check_run_parameter(run, k, v) for k, v in bounds.items())
     }
 
 
-def get_normed_total_run_score(
+def _get_normed_total_run_score(
     runs: dict[str, tuple[Run, float]],
     mean_score: float=0.0,
 ) -> float:
@@ -129,13 +129,13 @@ def get_normed_total_run_score(
         return 0.0
 
 
-def avg_run_score(
+def _avg_run_score(
     runs: dict[str, tuple[Run, float]],
 ) -> float:
     return np.mean([score for _, score in runs.values()]).item()
 
 
-def score_options(
+def _score_options(
     runs: dict[str, tuple[Run, float]],
     composite_key: str,
     param_opts: ParameterOptions[PB],
@@ -143,14 +143,14 @@ def score_options(
 
     total_b, top_b, mid_b, bot_b = param_opts.unpack()
 
-    top_runs = filter_runs(runs, {composite_key: top_b})
-    mid_runs = filter_runs(runs, {composite_key: mid_b})
-    bot_runs = filter_runs(runs, {composite_key: bot_b})
+    top_runs = _filter_runs(runs, {composite_key: top_b})
+    mid_runs = _filter_runs(runs, {composite_key: mid_b})
+    bot_runs = _filter_runs(runs, {composite_key: bot_b})
 
-    avg_score = avg_run_score(runs)
-    top_score = get_normed_total_run_score(top_runs, avg_score)
-    mid_score = get_normed_total_run_score(mid_runs, avg_score)
-    bot_score = get_normed_total_run_score(bot_runs, avg_score)
+    avg_score = _avg_run_score(runs)
+    top_score = _get_normed_total_run_score(top_runs, avg_score)
+    mid_score = _get_normed_total_run_score(mid_runs, avg_score)
+    bot_score = _get_normed_total_run_score(bot_runs, avg_score)
 
     return ScoredParameterOptions(
         total_b,
@@ -160,11 +160,11 @@ def score_options(
     )
 
 
-def trim_redundant_leading_key_parts(_dict):
+def _trim_redundant_leading_key_parts(_dict):
     all_leading_key_fragments = [k.split('/')[0] for k in _dict.keys()]
 
     if len(set(all_leading_key_fragments)) == 1:
-        return trim_redundant_leading_key_parts({
+        return _trim_redundant_leading_key_parts({
             '/'.join(k.split('/')[1:]): v
             for k, v in _dict.items()
         })
@@ -173,21 +173,21 @@ def trim_redundant_leading_key_parts(_dict):
         return _dict
 
 
-def best_scores_to_str(best_scores: dict[str, float]) -> str:
-    return '\n'.join(f"  {k}:\n    {v:.5g}" for k, v in trim_redundant_leading_key_parts(best_scores).items())
+def _best_scores_to_str(best_scores: dict[str, float]) -> str:
+    return '\n'.join(f"  {k}:\n    {v:.5g}" for k, v in _trim_redundant_leading_key_parts(best_scores).items())
 
 
-def take_best(scored_opts: dict[str, ScoredParameterOptions]) -> dict[str, ParameterBounds]:
-    best_scores = dmap(best_score, scored_opts)
-    log.info(f"Best parameter scores:\n{best_scores_to_str(best_scores)}")
+def _take_best(scored_opts: dict[str, ScoredParameterOptions]) -> dict[str, ParameterBounds]:
+    best_scores = dmap(_best_score, scored_opts)
+    log.info(f"Best parameter scores:\n{_best_scores_to_str(best_scores)}")
     best_param = sorted(best_scores.items(), key=lambda kv: kv[1])[-1][0]
-    to_return = {k: best_bounds(v) if k == best_param else v.total
+    to_return = {k: _best_bounds(v) if k == best_param else v.total
                  for k, v in scored_opts.items()}
-    log.info(f"Picked {best_param=} with score={best_score(scored_opts[best_param]):.5g} and bounds={to_return[best_param]}")
+    log.info(f"Picked {best_param=} with score={_best_score(scored_opts[best_param]):.5g} and bounds={to_return[best_param]}")
     return to_return
 
 
-def generate_options(param_bounds: PB) -> ParameterOptions[PB]:
+def _generate_options(param_bounds: PB) -> ParameterOptions[PB]:
     if isinstance(param_bounds, GeneralParameterSubset):
         q4 = param_bounds.pmax
         q0 = param_bounds.pmin
@@ -218,7 +218,7 @@ def generate_options(param_bounds: PB) -> ParameterOptions[PB]:
         raise ValueError
 
 
-def fit_search_space(
+def _fit_search_space(
     search_space: dict[str, ParameterBounds],
     runs: dict[str, tuple[Run, float]]
 ) -> dict[str, ParameterBounds]:
@@ -264,7 +264,7 @@ def fit_search_space(
     return new_space
 
 
-def parse_parameter_config(cfg: dict) -> ParameterBounds:
+def _parse_parameter_config(cfg: dict) -> ParameterBounds:
     distribution = cfg.get("distribution", "categorical")
     is_log = "log" in distribution.split("_")
 
@@ -287,12 +287,12 @@ def parse_parameter_config(cfg: dict) -> ParameterBounds:
         return GeneralParameterSubset(cfg.get("max", np.inf), cfg.get("min", -np.inf), is_log)
 
 
-def search_space_to_str(search_space: dict[str, ParameterBounds]) -> str:
+def _search_space_to_str(search_space: dict[str, ParameterBounds]) -> str:
 
-    return '\n'.join(f"  {k}:\n    {v}" for k, v in trim_redundant_leading_key_parts(search_space).items())
+    return '\n'.join(f"  {k}:\n    {v}" for k, v in _trim_redundant_leading_key_parts(search_space).items())
 
 
-def recursive_parameter_parse(
+def _recursive_parameter_parse(
     cfg: dict,
     ignored_keys: list[str] | None = None,
 ) -> dict[str, ParameterBounds]:
@@ -302,9 +302,9 @@ def recursive_parameter_parse(
     for k1, v1 in cfg.items():
         if isinstance(v1, dict) and "parameters" in v1.keys():
             out_d.update({f"{k1}/{k2}": v2
-                          for k2, v2 in recursive_parameter_parse(v1["parameters"]).items()})
+                          for k2, v2 in _recursive_parameter_parse(v1["parameters"]).items()})
         else:
-            out_d[k1] = parse_parameter_config(v1)
+            out_d[k1] = _parse_parameter_config(v1)
 
     if ignored_keys is not None:
         for k in ignored_keys:
@@ -313,7 +313,7 @@ def recursive_parameter_parse(
     return out_d
 
 
-def wandb_hparam_subset_search(
+def parameter_subset_search(
     wandb_entity: str,
     wandb_project: str,
     sweep_id: str,
@@ -341,7 +341,7 @@ def wandb_hparam_subset_search(
         return mult * run.summary[metric_name]
 
     log.info(f"Parsing parameter space")
-    search_space = recursive_parameter_parse(
+    search_space = _recursive_parameter_parse(
         sweep.config["parameters"],
         ignored_keys=ignored_keys,
     )
@@ -350,15 +350,15 @@ def wandb_hparam_subset_search(
         for r in tqdm(sweep.runs, desc="Fetching runs")
         if r.state == "finished"
     }
-    runs = filter_runs(runs, search_space)
-    search_space = fit_search_space(search_space, runs)
-    current_avg_score = avg_run_score(runs)
+    runs = _filter_runs(runs, search_space)
+    search_space = _fit_search_space(search_space, runs)
+    current_avg_score = _avg_run_score(runs)
 
     log.info(f"""Start stats:
 {len(runs)=}
 {current_avg_score=}
 search_space:
-{search_space_to_str(search_space)}""")
+{_search_space_to_str(search_space)}""")
 
     for _ in tqdm(range(iters), desc="Iteration", leave=False):
         if len(runs) == 1:
@@ -368,23 +368,23 @@ search_space:
         max_score = np.sum([max(score - current_avg_score, 0) for _, score in runs.values()])
 
         log.info(f"Best possible score: {max_score:.5g}")
-        options = dmap(generate_options, search_space)
+        options = dmap(_generate_options, search_space)
         scored_opts = {
-            k: score_options(runs, k, v)
+            k: _score_options(runs, k, v)
             for k, v in tqdm(options.items(), desc="Scoring options", leave=False)
         }
         log.debug(pformat(scored_opts))
-        search_space = take_best(scored_opts)
-        runs = filter_runs(runs, search_space)
-        current_avg_score = avg_run_score(runs)
-        search_space = fit_search_space(search_space, runs)
+        search_space = _take_best(scored_opts)
+        runs = _filter_runs(runs, search_space)
+        current_avg_score = _avg_run_score(runs)
+        search_space = _fit_search_space(search_space, runs)
 
         log.info(f"""New stats:
 {len(runs)=}
 {current_avg_score=}
 search_space:
-{search_space_to_str(search_space)}""")
+{_search_space_to_str(search_space)}""")
 
     log.info("Sweep finished")
-    log.info(f"Final space:\n{search_space_to_str(search_space)}")
+    log.info(f"Final space:\n{_search_space_to_str(search_space)}")
 
