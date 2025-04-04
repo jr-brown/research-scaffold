@@ -10,6 +10,7 @@ from math import floor
 from typing import Optional, Any, Union
 
 from .util import nones_to_empty_dicts, merge_dicts
+from .file_io import load
 
 
 log = logging.getLogger(__name__)
@@ -325,13 +326,37 @@ def plot_graph(
         plt.clf()
 
 
+def make_graphs(
+    graph_cfgs: list[dict[str, Any]],
+    data: Optional[dict]=None,
+    data_file_path: Optional[str]=None,
+    data_multipath_dict: Optional[dict[str, str]]=None,
+    file_type: str="pickle",
+    **all_graph_kwargs,
+):
+    if data_multipath_dict is not None:
+        assert data is None and data_file_path is None, "Too many data sources provided"
+
+        data = {k: load(file_type, v) if isinstance(v, str) else v
+                for k, v in data_multipath_dict.items()}
+
+    elif data_file_path is not None:
+        assert data is None, "Too many data sources provided"
+        data = load(file_type, data_file_path)
+
+    assert data is not None, "No data source provided"
+
+    for graph_cfg in graph_cfgs:
+        plot_graph(data, **graph_cfg, **all_graph_kwargs)
+
+
 def smooth(
     *time_series_data: Array,
     desired_time_samples: Optional[Array]=None,
-    shape_exponent: float=2,
-    shape_scaling: float=1,
+    shape_exponent: float=2.0,
+    shape_scaling: float=1.0,
     mode="exponential",
-    std_err_n_override: Optional[float]=None,
+    std_err_n_override: Optional[float | int]=None,
     output_as_dict: bool=False,
 ) -> tuple[Array, Array, Array, Array] | dict[str, Array]:
 
@@ -388,6 +413,7 @@ def get_plot_configs(
     plot_raw: bool=True,
     plot_smoothed: bool=False,
     plot_std_error: bool=False,
+    plot_smoothed_std_error: bool=False,
     plot_kwargs: dict[str, Any] | None=None,
 ):
     assert plot_raw or plot_smoothed, "Need to plot at least one of smoothed and raw"
@@ -445,7 +471,7 @@ def get_plot_configs(
             "keys_to_relevant": k,
             "x_key_chain_to_list": "time",
             "y_key_chain_to_list": "mean",
-            "err_key_chain_to_list": "std_errs" if plot_std_error else None,
+            "err_key_chain_to_list": "std_errs" if plot_smoothed_std_error else None,
             "is_scatter": is_scatter,
             "plot_kwargs": compiled_plot_kwargs,
         })
