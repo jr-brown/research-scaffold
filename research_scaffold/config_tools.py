@@ -67,11 +67,11 @@ class Config:
         """Simple shorthand for self.__dict__"""
         return self.__dict__
 
-    def update_function_kwargs(self, bonus_function_kwargs: StringKeyDict):
-        """Update the config with bonus function kwargs."""
-        self.function_kwargs = recursive_dict_update(
-            self.function_kwargs, bonus_function_kwargs
-        )
+    # def update_function_kwargs(self, bonus_function_kwargs: StringKeyDict):
+    #     """Update the config with bonus function kwargs."""
+    #     self.function_kwargs = recursive_dict_update(
+    #         self.function_kwargs, bonus_function_kwargs
+    #     )
 
 
 @dataclass
@@ -96,7 +96,7 @@ class MetaConfig:
     common_patch: Optional[str | list[str]]
     auto_increment_rng_seed: bool
     rng_seed_offset: int
-    bonus_function_kwargs: Optional[StringKeyDict]
+    bonus_dict: Optional[StringKeyDict]
 
     @property
     def d(self):
@@ -116,7 +116,9 @@ def load_config(cfg_path: str) -> Config:
 
 
 def load_and_compose_config_steps(
-    cfg_paths: list[str], compositions: Optional[dict[str, Callable]] = None
+    cfg_paths: list[str],
+    compositions: Optional[dict[str, Callable]] = None,
+    bonus_dict: dict = {},
 ) -> Config:
     """Return single config from iteratively combining configs loaded from cfg_paths."""
     config_dict = {}
@@ -126,6 +128,8 @@ def load_and_compose_config_steps(
         config_dict = recursive_dict_update(
             config_dict, partial_config_dict, compositions=compositions
         )
+
+    config_dict = recursive_dict_update(config_dict, bonus_dict)
 
     return Config(**config_dict)
 
@@ -163,7 +167,7 @@ def load_meta_config(meta_cfg_path: str) -> MetaConfig:
     experiments = [parse_experiment_set(specs) for specs in mc_dict["experiments"]]
     return MetaConfig(
         experiments=experiments,
-        bonus_function_kwargs=mc_dict.get("bonus_function_kwargs", None),
+        bonus_dict=mc_dict.get("bonus_dict", {}),
         common_root=mc_dict.get("common_root", None),
         common_patch=mc_dict.get("common_patch", None),
         auto_increment_rng_seed=mc_dict.get("auto_increment_rng_seed", False),
@@ -308,7 +312,7 @@ def process_product_experiment_spec(
     folder: Optional[str] = None,
     common_root: Optional[str | list[str]] = None,
     common_patch: Optional[str | list[str]] = None,
-    bonus_function_kwargs: Optional[StringKeyDict] = None,
+    bonus_dict: StringKeyDict = {},
 ) -> list[Config]:
     """
     Creates a list of 'product' configs specified via 'axes' of experiments.
@@ -353,9 +357,8 @@ def process_product_experiment_spec(
                     "name": lambda x, y: f"{x}_{y}",
                     "wandb_tags": lambda x, y: x + y,  # string concatenation
                 },
+                bonus_dict=bonus_dict,
             )
-            if bonus_function_kwargs is not None:
-                cfg.update_function_kwargs(bonus_function_kwargs)
             configs.append(cfg)
 
     return configs
@@ -376,7 +379,7 @@ def process_meta_config(mc: MetaConfig) -> list[Config]:
                 folder=mc.folder,
                 common_root=mc.common_root,
                 common_patch=mc.common_patch,
-                bonus_function_kwargs=mc.bonus_function_kwargs,
+                bonus_dict=mc.bonus_dict,
             )
         )
 

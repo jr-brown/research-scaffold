@@ -13,8 +13,10 @@ common_root:
 common_patch:
   - "patch.yaml"
 
-bonus_function_kwargs:
-  bonus_arg: "bonus_arg"
+bonus_dict:
+  name: "bonus_name"
+  function_kwargs:
+    bonus_arg: "bonus_arg"
 
 # New, each block of experiment_sets is equivalent, denoted by line breaks
 experiments:
