@@ -15,11 +15,13 @@ from dataclasses import dataclass
 # Third Party
 try:
     import jax
+
     has_jax = True
 except ModuleNotFoundError:
     has_jax = False
 
 import wandb
+
 
 # Local
 from .util import (
@@ -65,6 +67,12 @@ class Config:
         """Simple shorthand for self.__dict__"""
         return self.__dict__
 
+    def update_function_kwargs(self, bonus_function_kwargs: StringKeyDict):
+        """Update the config with bonus function kwargs."""
+        self.function_kwargs = recursive_dict_update(
+            self.function_kwargs, bonus_function_kwargs
+        )
+
 
 @dataclass
 class ProductExperimentSpec:
@@ -88,6 +96,7 @@ class MetaConfig:
     common_patch: Optional[str | list[str]]
     auto_increment_rng_seed: bool
     rng_seed_offset: int
+    bonus_function_kwargs: Optional[StringKeyDict]
 
     @property
     def d(self):
@@ -154,6 +163,7 @@ def load_meta_config(meta_cfg_path: str) -> MetaConfig:
     experiments = [parse_experiment_set(specs) for specs in mc_dict["experiments"]]
     return MetaConfig(
         experiments=experiments,
+        bonus_function_kwargs=mc_dict.get("bonus_function_kwargs", None),
         common_root=mc_dict.get("common_root", None),
         common_patch=mc_dict.get("common_patch", None),
         auto_increment_rng_seed=mc_dict.get("auto_increment_rng_seed", False),
@@ -188,8 +198,12 @@ def execute_from_config(
     if time_stamp_name:
         name = f"{name}_{get_time_stamp(include_seconds=True)}"
 
-    check_name_sub = partial(check_name_sub_general, new_name=name, run_name_dummy=run_name_dummy)
-    check_group_sub =  partial(check_name_sub_general, new_name=group, run_name_dummy=run_group_dummy)
+    check_name_sub = partial(
+        check_name_sub_general, new_name=name, run_name_dummy=run_name_dummy
+    )
+    check_group_sub = partial(
+        check_name_sub_general, new_name=group, run_name_dummy=run_group_dummy
+    )
 
     # Add handler to log to file if necessary
     if log_file_path is not None:
@@ -294,6 +308,7 @@ def process_product_experiment_spec(
     folder: Optional[str] = None,
     common_root: Optional[str | list[str]] = None,
     common_patch: Optional[str | list[str]] = None,
+    bonus_function_kwargs: Optional[StringKeyDict] = None,
 ) -> list[Config]:
     """
     Creates a list of 'product' configs specified via 'axes' of experiments.
@@ -339,6 +354,8 @@ def process_product_experiment_spec(
                     "wandb_tags": lambda x, y: x + y,  # string concatenation
                 },
             )
+            if bonus_function_kwargs is not None:
+                cfg.update_function_kwargs(bonus_function_kwargs)
             configs.append(cfg)
 
     return configs
@@ -359,6 +376,7 @@ def process_meta_config(mc: MetaConfig) -> list[Config]:
                 folder=mc.folder,
                 common_root=mc.common_root,
                 common_patch=mc.common_patch,
+                bonus_function_kwargs=mc.bonus_function_kwargs,
             )
         )
 
