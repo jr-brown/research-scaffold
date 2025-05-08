@@ -32,6 +32,7 @@ from .util import (
     get_time_stamp,
     recursive_dict_update,
     check_name_sub_general,
+    resolve_dict_with_omegaconf,
 )
 from .file_io import load
 
@@ -191,6 +192,7 @@ def execute_from_config(
     log_file_path: Optional[str] = None,
     run_name_dummy: str = "RUN_NAME",
     run_group_dummy: str = "RUN_GROUP",
+    resolve_omegaconf: bool = False,
 ):
     """
     Executes a function from a Config object.
@@ -247,6 +249,8 @@ def execute_from_config(
     log.info(f"Made {n_group_subs} substitutions of {run_group_dummy} for {group}")
 
     if wandb_project is not None and is_main_process:
+        if resolve_omegaconf:
+            function_kwargs = resolve_dict_with_omegaconf(function_kwargs)
         with wandb.init(
             entity=wandb_entity,
             project=wandb_project,
@@ -398,6 +402,7 @@ def execute_experiments(
     function_map: FunctionMap,
     config_path: Optional[str] = None,
     meta_config_path: Optional[str] = None,
+    resolve_omegaconf: bool = False,
 ) -> None:
     """Creates a sequence of configs from config_path or meta_config_path and executes them"""
 
@@ -429,4 +434,9 @@ def execute_experiments(
 
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")
-        execute_from_config(config, function_map=function_map, **config.d)
+        execute_from_config(
+            config,
+            function_map=function_map,
+            resolve_omegaconf=resolve_omegaconf,
+            **config.d,
+        )

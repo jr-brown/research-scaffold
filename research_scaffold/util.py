@@ -10,16 +10,41 @@ from datetime import datetime
 try:
     from accelerate import PartialState
     from accelerate.logging import get_logger as _get_logger
+
     accelerate_partial_state = PartialState()
     is_main_process = accelerate_partial_state.is_main_process
 
 except ModuleNotFoundError:
     from logging import getLogger as _get_logger
+
     is_main_process = True  # Do we want this to cover JAX parallelism as well?
+
+try:
+    from omegaconf import OmegaConf
+
+    def resolve_dict_with_omegaconf(cfg: dict) -> dict:
+        omega_cfg = OmegaConf.create(cfg)
+        return OmegaConf.to_container(omega_cfg, resolve=True)
+
+    ## Quick example to test:
+    # my_dict = {'a': 1, 'b': {'c': 2, 'd': '${a}'}}
+    # resolved = resolve_omegaconf(my_dict)
+    # print(resolved, type(resolved))
+
+except ModuleNotFoundError:
+
+    def resolve_dict_with_omegaconf(cfg: dict) -> dict:
+        return cfg
 
 
 def get_logger(*args, **kwargs):
     return _get_logger(*args, **kwargs)
+
+
+def resolve_omegaconf(cfg: dict) -> dict:
+    if OmegaConf is None:
+        return cfg
+    return OmegaConf.to_container(cfg, resolve=True)
 
 
 def nones_to_empty_lists(*args: Optional[list]) -> list[list]:
@@ -55,7 +80,10 @@ C = TypeVar("C")
 
 
 def check_name_sub_general(
-    _x: A, new_name: str, count: int = 0, run_name_dummy: str = "RUN_NAME",
+    _x: A,
+    new_name: str,
+    count: int = 0,
+    run_name_dummy: str = "RUN_NAME",
 ) -> tuple[A, int]:
     """Counts occurrences of run_name_dummy and substitutes these name.
     If _x is a dict or list, this is done recursively."""
