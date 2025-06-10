@@ -129,7 +129,9 @@ def load_and_compose_config_steps(
             config_dict, partial_config_dict, compositions=compositions
         )
 
-    config_dict = recursive_dict_update(config_dict, bonus_dict)
+    config_dict = recursive_dict_update(
+        config_dict, bonus_dict, compositions=compositions
+    )
 
     return Config(**config_dict)
 
