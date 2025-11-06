@@ -16,6 +16,12 @@ def get_base_argparser() -> argparse.ArgumentParser:
         help="Meta config file that can specify many experiments, each possibly composing configs",
     )
     parser.add_argument(
+        "-s",
+        "--sweep_config_path",
+        default=None,
+        help="Sweep config file for wandb hyperparameter search",
+    )
+    parser.add_argument(
         "-l", "--loglevel", default="info", help="Provide logging level"
     )
     parser.add_argument(
@@ -34,7 +40,7 @@ def get_base_argparser() -> argparse.ArgumentParser:
     return parser
 
 
-def process_base_args(args) -> tuple[str | None, str | None]:
+def process_base_args(args) -> tuple[str | None, str | None, str | None]:
     logging.basicConfig(
         level=args.loglevel.upper(),
         format="%(asctime)s %(module)-15s %(levelname)-8s %(message)s",
@@ -50,5 +56,5 @@ def process_base_args(args) -> tuple[str | None, str | None]:
     if args.force_cpu:
         environ["CUDA_VISIBLE_DEVICES"] = ""
 
-    return args.config_path, args.meta_config_path
+    return args.config_path, args.meta_config_path, args.sweep_config_path
 

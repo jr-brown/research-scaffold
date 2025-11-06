@@ -8,7 +8,8 @@ import subprocess
 
 from os import path, makedirs
 from pprint import pformat
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
+from collections.abc import Callable
 from functools import partial
 from dataclasses import dataclass
 
@@ -396,10 +397,95 @@ def process_meta_config(mc: MetaConfig) -> list[Config]:
     return configs
 
 
+def execute_sweep(
+    function_map: FunctionMap,
+    sweep_config_path: str,
+) -> None:
+    """Execute a wandb sweep from sweep config file."""
+    
+    git_commit_hash = (
+        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+        .decode("ascii")
+        .strip()
+    )
+    log.info(f"Executing sweep, {git_commit_hash=}")
+    
+    # Load sweep config
+    log.info("Loading sweep config...")
+    sweep_dict = load_dict_from_yaml(sweep_config_path)
+    
+    # Extract custom fields
+    base_config_path = sweep_dict.pop("base_config", None)
+    sweep_count = sweep_dict.pop("sweep_count", None)
+    
+    # Load base config if specified, otherwise create minimal config
+    if base_config_path is not None:
+        log.info(f"Loading base config from {base_config_path}")
+        base_config = load_config(base_config_path)
+    else:
+        log.info("No base_config specified, using minimal config")
+        # Create a minimal config - user must specify function_name in sweep or base
+        base_config = Config(
+            name="sweep_run",
+            function_name=sweep_dict.get("function_name", ""),
+        )
+    
+    # Extract wandb project/entity from sweep config or base config
+    wandb_project = sweep_dict.pop("project", base_config.wandb_project)
+    wandb_entity = sweep_dict.pop("entity", base_config.wandb_entity)
+    
+    if wandb_project is None:
+        raise ValueError("wandb project must be specified in sweep config or base config")
+    
+    log.info(f"Creating wandb sweep in {wandb_entity}/{wandb_project}")
+    log.info("========== Sweep Config ===========\n" + pformat(sweep_dict))
+    
+    # Initialize wandb sweep
+    sweep_id = wandb.sweep(
+        sweep=sweep_dict,
+        project=wandb_project,
+        entity=wandb_entity,
+    )
+    
+    log.info(f"Created sweep with {sweep_id=}")
+    
+    # Define the train function that wandb.agent will call
+    def train_function():
+        # wandb.config contains the sweep parameters
+        sweep_params = dict(wandb.config)
+        
+        # Merge sweep params with base config (sweep params override)
+        merged_kwargs = {**(base_config.function_kwargs or {}), **sweep_params}
+        
+        # Note: wandb.agent already calls wandb.init for us, so we skip wandb init
+        # by setting wandb_project to None in execute_from_config
+        
+        log.info("========== Sweep Run Config ===========")
+        log.info(f"Function: {base_config.function_name}")
+        log.info(f"Sweep params: {pformat(sweep_params)}")
+        log.info(f"Merged kwargs: {pformat(merged_kwargs)}")
+        
+        # Execute the function directly without wandb.init (agent handles it)
+        (function_args,) = nones_to_empty_lists(base_config.function_args)
+        
+        function_map[base_config.function_name](*function_args, **merged_kwargs)
+        
+        # Clear JAX caches if available
+        if has_jax:
+            jax.clear_caches()
+    
+    # Run the sweep agent
+    log.info(f"Starting sweep agent{f' for {sweep_count} runs' if sweep_count else ''}")
+    wandb.agent(sweep_id, function=train_function, count=sweep_count, project=wandb_project, entity=wandb_entity)
+    
+    log.info("Sweep completed")
+
+
 def execute_experiments(
     function_map: FunctionMap,
     config_path: Optional[str] = None,
     meta_config_path: Optional[str] = None,
+    sweep_config_path: Optional[str] = None,
 ) -> None:
     """Creates a sequence of configs from config_path or meta_config_path and executes them"""
 
@@ -410,10 +496,21 @@ def execute_experiments(
     )
     log.info(f"Executing experiment, {git_commit_hash=}")
 
-    if (config_path is not None) and (meta_config_path is not None):
+    # Check that only one execution mode is specified
+    specified_modes = sum([
+        config_path is not None,
+        meta_config_path is not None,
+        sweep_config_path is not None,
+    ])
+    
+    if specified_modes > 1:
         raise ValueError(
-            "Exactly one of config_paths and meta_config_path must be specified"
+            "Only one of config_path, meta_config_path, or sweep_config_path can be specified"
         )
+    
+    if sweep_config_path is not None:
+        execute_sweep(function_map, sweep_config_path)
+        return
 
     if config_path is not None:
         log.info("Loading config...")
@@ -426,7 +523,7 @@ def execute_experiments(
         configs = process_meta_config(meta_config)
 
     else:
-        log.warning("Please use -c or -m to specify a config or meta config to run!")
+        log.warning("Please use -c, -m, or -s to specify a config, meta config, or sweep config to run!")
         configs = []
 
     for i, config in enumerate(configs):
