@@ -419,16 +419,40 @@ def execute_sweep(
     sweep_count = sweep_dict.pop("sweep_count", None)
     
     # Load base config if specified, otherwise create minimal config
+    base_configs = []
     if base_config_path is not None:
         log.info(f"Loading base config from {base_config_path}")
-        base_config = load_config(base_config_path)
+        
+        # Check if it's a meta-config
+        base_dict = load_dict_from_yaml(base_config_path)
+        is_meta = "experiments" in base_dict
+        
+        if is_meta:
+            log.info("Base config is a meta-config, processing...")
+            meta_config = load_meta_config(base_config_path)
+            
+            # Validate meta-config doesn't conflict with sweep
+            for exp in meta_config.experiments:
+                has_axes = "config_axes" in str(exp.config_axes) if exp.config_axes else False
+                if exp.repeats > 1:
+                    raise ValueError(
+                        "base_config meta-config cannot have repeats > 1 (conflicts with sweep)"
+                    )
+            
+            base_configs = process_meta_config(meta_config)
+            log.info(f"Meta-config produced {len(base_configs)} configs for sweep")
+        else:
+            base_configs = [load_config(base_config_path)]
     else:
         log.info("No base_config specified, using minimal config")
         # Create a minimal config - user must specify function_name in sweep or base
-        base_config = Config(
+        base_configs = [Config(
             name="sweep_run",
             function_name=sweep_dict.get("function_name", ""),
-        )
+        )]
+    
+    # Get wandb config from first base config
+    base_config = base_configs[0]
     
     # Extract wandb project/entity from sweep config or base config
     wandb_project = sweep_dict.pop("project", base_config.wandb_project)
@@ -454,25 +478,29 @@ def execute_sweep(
         # wandb.config contains the sweep parameters
         sweep_params = dict(wandb.config)
         
-        # Merge sweep params with base config (sweep params override)
-        merged_kwargs = {**(base_config.function_kwargs or {}), **sweep_params}
-        
-        # Note: wandb.agent already calls wandb.init for us, so we skip wandb init
-        # by setting wandb_project to None in execute_from_config
-        
-        log.info("========== Sweep Run Config ===========")
-        log.info(f"Function: {base_config.function_name}")
+        log.info("========== Sweep Run ===========")
         log.info(f"Sweep params: {pformat(sweep_params)}")
-        log.info(f"Merged kwargs: {pformat(merged_kwargs)}")
+        log.info(f"Running {len(base_configs)} config(s)")
         
-        # Execute the function directly without wandb.init (agent handles it)
-        (function_args,) = nones_to_empty_lists(base_config.function_args)
-        
-        function_map[base_config.function_name](*function_args, **merged_kwargs)
-        
-        # Clear JAX caches if available
-        if has_jax:
-            jax.clear_caches()
+        # Execute each base config with sweep parameters
+        for i, cfg in enumerate(base_configs):
+            if len(base_configs) > 1:
+                log.info(f"--- Config {i+1}/{len(base_configs)}: {cfg.name} ---")
+            
+            # Merge sweep params with this config's kwargs (sweep params override)
+            merged_kwargs = {**(cfg.function_kwargs or {}), **sweep_params}
+            
+            log.info(f"Function: {cfg.function_name}")
+            log.info(f"Merged kwargs: {pformat(merged_kwargs)}")
+            
+            # Execute the function directly without wandb.init (agent handles it)
+            (function_args,) = nones_to_empty_lists(cfg.function_args)
+            
+            function_map[cfg.function_name](*function_args, **merged_kwargs)
+            
+            # Clear JAX caches if available
+            if has_jax:
+                jax.clear_caches()
     
     # Run the sweep agent
     log.info(f"Starting sweep agent{f' for {sweep_count} runs' if sweep_count else ''}")

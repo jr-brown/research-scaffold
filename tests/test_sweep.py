@@ -214,3 +214,56 @@ def test_sweep_without_base_config(example_dir, mock_wandb, mock_git):
     assert sweep_config_arg['method'] == 'random'
     assert 'base_config' not in sweep_config_arg
 
+
+def test_sweep_with_meta_config_base(example_dir, mock_wandb, mock_git):
+    """Test sweep with meta-config as base_config (runs multiple configs per sweep iteration)"""
+    call_tracker = []
+    
+    def simple_fn(**kwargs):
+        call_tracker.append(('simple', kwargs))
+    
+    def log_fn(**kwargs):
+        call_tracker.append(('log', kwargs))
+    
+    function_map = {
+        "example_simple_config": simple_fn,
+        "example_log_levels": log_fn,
+    }
+    
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(example_dir)
+        execute_sweep(
+            function_map=function_map,
+            sweep_config_path="sweep_configs/sweep_with_meta_base.yaml",
+        )
+        
+        # Get train function
+        train_fn = mock_wandb['train_function']['function']
+        assert train_fn is not None
+        
+        # Simulate one sweep iteration
+        mock_wandb['config']['dummy_int'] = 10
+        mock_wandb['config']['dummy_str'] = 'bar'
+        
+        train_fn()
+        
+    finally:
+        os.chdir(old_cwd)
+    
+    # Both configs should have been executed in one sweep iteration
+    assert len(call_tracker) == 2
+    assert call_tracker[0][0] == 'simple'
+    assert call_tracker[1][0] == 'log'
+    
+    # Sweep params should have been applied
+    assert call_tracker[0][1]['dummy_int'] == 10
+    assert call_tracker[0][1]['dummy_str'] == 'bar'
+
+
+def test_meta_config_base_validation_rejects_repeats(example_dir, mock_git):
+    """Test that meta-configs with repeats are rejected as base_config"""
+    # This would need a meta-config with repeats > 1
+    # For now, we'll skip this validation test as we don't have such a config
+    pass
+

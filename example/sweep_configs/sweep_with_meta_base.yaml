@@ -1,0 +1,18 @@
+# Sweep config using a meta-config as base
+# The meta-config produces multiple configs that all run per sweep iteration
+
+base_config: "meta_configs/sweep_base_simple.yaml"
+project: "research-scaffold-test"
+sweep_count: 3
+
+method: grid
+metric:
+  name: dummy_metric
+  goal: maximize
+
+parameters:
+  dummy_int:
+    values: [5, 10]
+  dummy_str:
+    values: ["foo", "bar"]
+
