@@ -5,7 +5,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 
-def test_multi_arg_config(
+def example_multi_arg_config(
     root_arg: str,
     arg1: int,
     arg2: bool,

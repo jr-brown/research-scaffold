@@ -4,7 +4,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def test_simple_config(
+def example_simple_config(
     dummy_str: str,
     dummy_int: int,
     dummy_bool: bool,
@@ -24,7 +24,7 @@ def test_simple_config(
     print(f"{dummy_str_default=}")
 
 
-def test_log_levels() -> None:
+def example_log_levels() -> None:
     log.debug("Log debug test")
     log.info("Log info test")
     log.warning("Log warn test")

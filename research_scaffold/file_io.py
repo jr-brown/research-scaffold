@@ -9,7 +9,8 @@ import pickle
 from os import path, remove
 from time import sleep
 from random import uniform
-from typing import Callable, Union, TypeVar
+from typing import Union, TypeVar
+from collections.abc import Callable
 from pathlib import Path
 from functools import partial
 

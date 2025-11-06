@@ -8,7 +8,8 @@ import subprocess
 
 from os import path, makedirs
 from pprint import pformat
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
+from collections.abc import Callable
 from functools import partial
 from dataclasses import dataclass
 
