@@ -4,7 +4,8 @@ Generic Utility Functions
 
 from re import search, subn
 from copy import deepcopy
-from typing import Optional, TypeVar, Callable
+from typing import Optional, TypeVar
+from collections.abc import Callable
 from datetime import datetime
 
 try:

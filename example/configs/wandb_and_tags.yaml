@@ -1,6 +1,6 @@
 name: "simple_tagged_config_test"
 time_stamp_name: true
-function_name: "test_simple_config"
+function_name: "example_simple_config"
 wandb_project: "research_scaffold_test"
 wandb_group: "tag_development"
 wandb_tags:

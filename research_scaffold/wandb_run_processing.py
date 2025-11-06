@@ -5,7 +5,8 @@ import numpy as np
 
 from re import search
 from tqdm import tqdm
-from typing import Optional, Any, Callable
+from typing import Optional, Any
+from collections.abc import Callable
 
 
 Array = np.ndarray

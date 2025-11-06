@@ -1,6 +1,6 @@
 name: "meta_config_format_test_with_tags"
 time_stamp_name: true
-function_name: "test_multi_arg_config"
+function_name: "example_multi_arg_config"
 log_file_path: "local/python_output/RUN_NAME/logs/logs.txt"
 
 function_kwargs:

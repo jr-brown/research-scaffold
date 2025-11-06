@@ -8,7 +8,8 @@ import logging
 import argparse
 
 from os import environ
-from typing import Callable, Optional
+from typing import Optional
+from collections.abc import Callable
 
 # For testing multi device semantics
 # TODO: Make this a proper parsed argument
@@ -76,15 +77,15 @@ if __name__ == "__main__":
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 # Local
-from functions.jason_examples import test_simple_config, test_log_levels
-from functions.lennie_examples import test_multi_arg_config
+from functions.jason_examples import example_simple_config, example_log_levels
+from functions.lennie_examples import example_multi_arg_config
 from research_scaffold import execute_experiments
 
 log = logging.getLogger(__name__)
 
 
 function_map: dict[str, Callable] = {
-    f.__name__: f for f in [test_simple_config, test_log_levels, test_multi_arg_config]
+    f.__name__: f for f in [example_simple_config, example_log_levels, example_multi_arg_config]
 }
 
 
