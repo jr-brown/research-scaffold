@@ -1,0 +1,21 @@
+# Minimal sweep config without base_config
+# Demonstrates that sweeps work without a base configuration
+
+function_name: "example_sweep_function"
+project: "test-project"
+sweep_count: 2
+
+method: random
+metric:
+  name: loss
+  goal: minimize
+
+parameters:
+  dummy_int:
+    min: 1
+    max: 10
+  dummy_str:
+    values: ["a", "b"]
+  dummy_bool:
+    values: [true, false]
+

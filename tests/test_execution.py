@@ -61,7 +61,7 @@ def test_execute_with_wandb(example_dir, mock_git, mock_wandb):
     )
     
     # Verify wandb.init was called
-    assert mock_wandb.init.called
+    assert mock_wandb['init'].called
     
     # Verify function was called
     assert len(call_tracker) == 1
