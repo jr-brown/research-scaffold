@@ -1,0 +1,10 @@
+name: "sweep_experiment_with_logging"
+function_name: "example_sweep"
+log_file_path: "local/SWEEP_NAME/RUN_NAME/output.log"
+
+function_kwargs:
+  learning_rate: 0.01
+  batch_size: 32
+  model_size: 128
+  output_dir: "local/SWEEP_NAME/RUN_NAME"
+

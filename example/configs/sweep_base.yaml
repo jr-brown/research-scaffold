@@ -1,8 +1,0 @@
-name: "sweep_test"
-function_name: "example_sweep_function"
-
-function_kwargs:
-  dummy_str: "foo"
-  dummy_int: 5
-  dummy_bool: true
-

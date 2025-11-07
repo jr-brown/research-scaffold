@@ -1,0 +1,11 @@
+# Meta-config showing sweep with config composition
+
+common_root: "sweeps/configs/composed_base.yaml"
+common_patch: "sweeps/configs/composed_patch.yaml"
+
+experiments:
+  # Sweep will use: composed_base + option_a + composed_patch
+  - sweep_config: "sweeps/sweep_configs/for_composition.yaml"
+    base_config: "sweeps/configs/option_a.yaml"
+    sweep_count: 3
+

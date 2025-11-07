@@ -1,0 +1,8 @@
+name: "my_first_experiment"
+function_name: "example_simple"
+
+function_kwargs:
+  param_a: "hello"
+  param_b: 42
+  param_c: true
+

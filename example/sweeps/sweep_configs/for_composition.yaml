@@ -1,0 +1,18 @@
+# Sweep config for use with composition
+# base_config will be set by meta-config
+
+sweep_name: "composed_sweep"
+project: "research-scaffold-demo"
+sweep_count: 5
+
+method: grid
+metric:
+  name: performance_metric
+  goal: maximize
+
+parameters:
+  learning_rate:
+    values: [0.001, 0.01, 0.1]
+  batch_size:
+    values: [32, 64]
+
