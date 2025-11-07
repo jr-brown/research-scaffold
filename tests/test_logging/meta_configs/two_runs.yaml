@@ -1,0 +1,4 @@
+experiments:
+  - config: "configs/run_a.yaml"
+  - config: "configs/run_b.yaml"
+

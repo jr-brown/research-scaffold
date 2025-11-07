@@ -1,0 +1,7 @@
+# Simple compositional meta-config for sweep testing
+# Produces 2 configs with different names but same function
+
+experiments:
+  - config: "configs/simple_config.yaml"
+  - config: "configs/log_levels.yaml"
+

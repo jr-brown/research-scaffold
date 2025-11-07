@@ -1,0 +1,16 @@
+# Sweep for testing common_root/patch composition
+
+project: "test-project"
+sweep_count: 2
+
+method: grid
+metric:
+  name: test_metric
+  goal: maximize
+
+parameters:
+  arg1:
+    values: [100, 200]
+  arg2:
+    values: [true, false]
+

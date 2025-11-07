@@ -1,0 +1,7 @@
+name: "experiment_base"
+function_name: "example_sweep"
+
+function_kwargs:
+  learning_rate: 0.01
+  batch_size: 32
+

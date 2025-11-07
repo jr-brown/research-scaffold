@@ -1,0 +1,7 @@
+# Meta-config demonstrating config_steps (sequential composition)
+
+experiments:
+  - config_steps:
+      - "composition/configs/base.yaml"
+      - "composition/configs/patch.yaml"
+

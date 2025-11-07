@@ -1,6 +1,7 @@
 """Test meta-config functionality"""
 
 import os
+from pathlib import Path
 from research_scaffold.config_tools import (
     load_meta_config,
     process_meta_config,
@@ -8,11 +9,14 @@ from research_scaffold.config_tools import (
 )
 
 
-def test_meta_config_with_axes(example_dir, mock_git):
+TEST_DIR = Path(__file__).parent
+
+
+def test_meta_config_with_axes(mock_git):
     """Test meta-config with config_axes (cartesian product)"""
     old_cwd = os.getcwd()
     try:
-        os.chdir(example_dir)
+        os.chdir(TEST_DIR)
         meta = load_meta_config("meta_configs/lennie_tests.yaml")
         configs = process_meta_config(meta)
         
@@ -28,11 +32,11 @@ def test_meta_config_with_axes(example_dir, mock_git):
         os.chdir(old_cwd)
 
 
-def test_meta_config_with_repeats(example_dir, mock_git):
+def test_meta_config_with_repeats(mock_git):
     """Test that repeats work correctly"""
     old_cwd = os.getcwd()
     try:
-        os.chdir(example_dir)
+        os.chdir(TEST_DIR)
         meta = load_meta_config("meta_configs/lennie_tests.yaml")
         
         # Last experiment has repeats: 2
@@ -47,11 +51,11 @@ def test_meta_config_with_repeats(example_dir, mock_git):
         os.chdir(old_cwd)
 
 
-def test_meta_config_bonus_dict(example_dir, mock_git):
+def test_meta_config_bonus_dict(mock_git):
     """Test that bonus_dict is applied to all configs"""
     old_cwd = os.getcwd()
     try:
-        os.chdir(example_dir)
+        os.chdir(TEST_DIR)
         meta = load_meta_config("meta_configs/lennie_tests.yaml")
         
         assert meta.bonus_dict is not None
@@ -68,11 +72,11 @@ def test_meta_config_bonus_dict(example_dir, mock_git):
         os.chdir(old_cwd)
 
 
-def test_meta_config_common_root_patch(example_dir, mock_git):
+def test_meta_config_common_root_patch(mock_git):
     """Test that common_root and common_patch are applied"""
     old_cwd = os.getcwd()
     try:
-        os.chdir(example_dir)
+        os.chdir(TEST_DIR)
         meta = load_meta_config("meta_configs/lennie_tests.yaml")
         
         assert meta.common_root == ["root.yaml"]
@@ -91,7 +95,7 @@ def test_meta_config_common_root_patch(example_dir, mock_git):
         os.chdir(old_cwd)
 
 
-def test_execute_meta_config_full(example_dir, mock_git):
+def test_execute_meta_config_full(mock_git):
     """Test executing a full meta-config"""
     call_tracker = []
     
@@ -102,7 +106,7 @@ def test_execute_meta_config_full(example_dir, mock_git):
     
     old_cwd = os.getcwd()
     try:
-        os.chdir(example_dir)
+        os.chdir(TEST_DIR)
         execute_experiments(
             function_map=function_map,
             meta_config_path="meta_configs/lennie_tests.yaml",

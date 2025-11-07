@@ -1,0 +1,9 @@
+name: "simple_config_test"
+time_stamp_name: true
+function_name: "example_simple_config"
+
+function_kwargs:
+  dummy_str: "foo"
+  dummy_int: 4
+  dummy_bool: true
+

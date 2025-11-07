@@ -1,0 +1,35 @@
+# Sweep demonstrating nested parameters
+
+base_config: "sweeps/configs/nested_base.yaml"
+sweep_name: "nested_param_search"
+project: "research-scaffold-demo"
+sweep_count: 8
+
+method: random
+metric:
+  name: performance_metric
+  goal: maximize
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.01
+  
+  # Nested model parameters
+  model:
+    parameters:
+      hidden_dim:
+        values: [128, 256, 512]
+      dropout:
+        distribution: uniform
+        min: 0.0
+        max: 0.5
+  
+  # Nested optimizer parameters
+  optimizer:
+    parameters:
+      momentum:
+        min: 0.8
+        max: 0.99
+

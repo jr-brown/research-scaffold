@@ -1,0 +1,16 @@
+# Sweep with custom sweep_name for SWEEP_NAME substitution
+
+base_config: "configs/config_with_sweep_name.yaml"
+sweep_name: "my_hyperparameter_search"
+project: "test-project"
+sweep_count: 2
+
+method: grid
+metric:
+  name: dummy_metric
+  goal: maximize
+
+parameters:
+  dummy_int:
+    values: [5, 10]
+

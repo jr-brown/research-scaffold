@@ -1,0 +1,8 @@
+name: "composed_experiment"
+function_name: "example_composition"
+
+function_kwargs:
+  base_param: "from_base"
+  patch_param: "will_be_overridden"
+  optional_param: "base_default"
+

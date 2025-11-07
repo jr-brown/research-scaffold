@@ -1,0 +1,13 @@
+# Meta-config that produces MULTIPLE configs
+# This should be REJECTED as sweep base_config
+
+folder: "configs/lennie"
+common_root: "root.yaml"
+common_patch: "patch.yaml"
+
+experiments:
+  # This produces 2 configs (axes with 2 options)
+  - config_axes:
+      - - "level1a.yaml"
+        - "level1b.yaml"
+

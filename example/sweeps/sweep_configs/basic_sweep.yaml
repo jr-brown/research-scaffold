@@ -1,0 +1,20 @@
+# Basic Bayesian hyperparameter sweep
+
+base_config: "sweeps/configs/sweep_base.yaml"
+sweep_name: "basic_hp_search"
+project: "research-scaffold-demo"
+sweep_count: 5
+
+method: bayes
+metric:
+  name: performance_metric
+  goal: maximize
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.1
+  batch_size:
+    values: [16, 32, 64, 128]
+

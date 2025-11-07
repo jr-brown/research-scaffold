@@ -1,10 +1,14 @@
 """Test experiment execution"""
 
+from pathlib import Path
 from research_scaffold.config_tools import execute_experiments, execute_from_config, load_config
 from unittest.mock import Mock
 
 
-def test_execute_single_config(example_dir, mock_git):
+TEST_DIR = Path(__file__).parent
+
+
+def test_execute_single_config(mock_git):
     call_tracker = []
     
     def test_fn(**kwargs):
@@ -14,7 +18,7 @@ def test_execute_single_config(example_dir, mock_git):
     
     execute_experiments(
         function_map=function_map,
-        config_path=str(example_dir / "configs/simple_config.yaml"),
+        config_path=str(TEST_DIR / "configs/simple_config.yaml"),
     )
     
     assert len(call_tracker) == 1
@@ -47,7 +51,7 @@ def test_execute_from_config_calls_function(mock_git):
     assert call_tracker[0]["b"] == 2
 
 
-def test_execute_with_wandb(example_dir, mock_git, mock_wandb):
+def test_execute_with_wandb(mock_git, mock_wandb):
     call_tracker = []
     
     def test_fn(**kwargs):
@@ -57,11 +61,11 @@ def test_execute_with_wandb(example_dir, mock_git, mock_wandb):
     
     execute_experiments(
         function_map=function_map,
-        config_path=str(example_dir / "configs/wandb_and_tags.yaml"),
+        config_path=str(TEST_DIR / "configs/wandb_and_tags.yaml"),
     )
     
     # Verify wandb.init was called
-    assert mock_wandb.init.called
+    assert mock_wandb['init'].called
     
     # Verify function was called
     assert len(call_tracker) == 1

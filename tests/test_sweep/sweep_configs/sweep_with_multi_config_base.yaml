@@ -1,0 +1,16 @@
+# Sweep using a multi-config meta-config as base (INVALID)
+# This should be rejected
+
+base_config: "meta_configs/multi_config_base.yaml"
+project: "test-project"
+sweep_count: 2
+
+method: grid
+metric:
+  name: test_metric
+  goal: maximize
+
+parameters:
+  arg1:
+    values: ["a", "b"]
+

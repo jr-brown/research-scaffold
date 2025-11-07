@@ -1,0 +1,12 @@
+# Meta-config demonstrating config_axes (cartesian product)
+
+folder: "composition/configs"
+common_root: "base.yaml"
+common_patch: "patch.yaml"
+
+experiments:
+  # Run all combinations: base + (option_a OR option_b) + patch
+  - config_axes:
+      - - "option_a.yaml"
+        - "option_b.yaml"
+

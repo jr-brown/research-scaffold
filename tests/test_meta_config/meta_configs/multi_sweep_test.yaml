@@ -1,0 +1,14 @@
+# Meta-config that orchestrates multiple sweeps
+# Demonstrates running different sweeps sequentially
+
+folder: "sweep_configs"
+
+experiments:
+  # First sweep
+  - sweep_config: "simple_sweep.yaml"
+    sweep_count: 3
+  
+  # Second sweep with different base
+  - sweep_config: "minimal_sweep.yaml"
+    sweep_count: 2
+

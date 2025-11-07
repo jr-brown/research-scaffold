@@ -1,0 +1,12 @@
+# Meta-config demonstrating common_root with sweeps
+# The common_root/patch are prepended/appended to the base_config of the sweep
+
+common_root: "configs/lennie/root.yaml"
+common_patch: "configs/lennie/patch.yaml"
+
+experiments:
+  # Sweep with composed base_config: root.yaml + level1a.yaml + patch.yaml
+  - sweep_config: "sweep_configs/multi_arg_sweep.yaml"
+    base_config: "configs/lennie/level1a.yaml"
+    sweep_count: 2
+

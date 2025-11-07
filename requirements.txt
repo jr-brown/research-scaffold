@@ -2,3 +2,4 @@
 wandb
 beartype
 pyyaml
+tqdm

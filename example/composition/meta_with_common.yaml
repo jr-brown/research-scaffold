@@ -1,0 +1,11 @@
+# Meta-config showing common_root and common_patch
+
+folder: "composition/configs"
+common_root: "base.yaml"
+common_patch: "patch.yaml"
+
+experiments:
+  # Both experiments get: base + their_config + patch
+  - config: "option_a.yaml"
+  - config: "option_b.yaml"
+
