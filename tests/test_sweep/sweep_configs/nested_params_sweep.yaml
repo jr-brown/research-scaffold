@@ -1,0 +1,33 @@
+# Sweep with nested parameters
+# Demonstrates sweeping over nested config values
+
+base_config: "configs/nested_config.yaml"
+project: "nested-params-test"
+sweep_count: 3
+
+method: grid
+metric:
+  name: dummy_metric
+  goal: maximize
+
+parameters:
+  # Top-level param
+  dummy_int:
+    values: [5, 10]
+  
+  # Nested params
+  model:
+    parameters:
+      learning_rate:
+        distribution: log_uniform_values
+        min: 0.0001
+        max: 0.01
+      hidden_size:
+        values: [64, 128, 256]
+  
+  optimizer:
+    parameters:
+      momentum:
+        min: 0.85
+        max: 0.95
+

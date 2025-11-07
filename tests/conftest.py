@@ -32,6 +32,10 @@ def mock_wandb():
         # Mock wandb.config for sweep parameters
         mock.config = {}
         
+        # Mock wandb.run for sweep run name
+        mock.run = Mock()
+        mock.run.name = "test-sweep-run-123"
+        
         # Yield dict with everything
         yield {
             'wandb': mock,
@@ -39,6 +43,7 @@ def mock_wandb():
             'agent': mock.agent,
             'init': mock.init,
             'config': mock.config,
+            'run': mock.run,
             'train_function': train_function_holder,
             'agent_call_info': agent_call_holder,
         }
@@ -51,7 +56,4 @@ def mock_git():
         yield mock
 
 
-@pytest.fixture
-def example_dir():
-    return Path(__file__).parent.parent / "example"
 

@@ -1,0 +1,5 @@
+wandb_tags:
+  - "l1b"
+  
+function_kwargs:
+  arg1: "read from level1b.yaml"

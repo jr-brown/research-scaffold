@@ -1,0 +1,12 @@
+# Compositional meta-config that produces ONE config
+# This can be used as sweep base_config
+
+folder: "configs/lennie"
+
+experiments:
+  # Single experiment with config_steps (composition)
+  - config_steps:
+      - "root.yaml"
+      - "level1a.yaml"
+      - "patch.yaml"
+

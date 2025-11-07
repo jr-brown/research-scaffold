@@ -1,0 +1,10 @@
+name: "test_sweep_name"
+function_name: "example_sweep_function"
+
+function_kwargs:
+  dummy_str: "foo"
+  dummy_int: 5
+  dummy_bool: true
+  output_dir: "results/SWEEP_NAME/run_output"
+  checkpoint_path: "checkpoints/SWEEP_NAME/model.pt"
+

@@ -1,0 +1,16 @@
+# Sweep using a compositional meta-config as base
+# The meta-config composes multiple configs into ONE
+
+base_config: "meta_configs/compositional_base.yaml"
+project: "test-project"
+sweep_count: 2
+
+method: grid
+metric:
+  name: test_metric
+  goal: maximize
+
+parameters:
+  arg1:
+    values: ["sweep_val_a", "sweep_val_b"]
+

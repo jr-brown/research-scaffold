@@ -1,0 +1,5 @@
+name: "log_levels_test"
+time_stamp_name: true
+function_name: "example_log_levels"
+log_file_path: "local/RUN_NAME/logs.txt"
+

@@ -1,0 +1,12 @@
+name: "logging_test_run"
+time_stamp_name: true
+function_name: "example_multi_arg_config"
+log_file_path: "logs/RUN_NAME/output.log"
+
+function_kwargs:
+  root_arg: "test"
+  arg1: 42
+  arg2: true
+  patch_arg: "patch"
+  expt_input_format: "test"
+

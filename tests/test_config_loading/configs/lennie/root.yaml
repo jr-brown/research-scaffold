@@ -1,0 +1,9 @@
+name: "meta_config_format_test_with_tags"
+time_stamp_name: true
+function_name: "example_multi_arg_config"
+log_file_path: "local/python_output/RUN_NAME/logs/logs.txt"
+
+function_kwargs:
+  root_arg: "read from root.yaml"
+  patch_arg: "original read from root.yaml"
+  arg2: "default read from root.yaml"

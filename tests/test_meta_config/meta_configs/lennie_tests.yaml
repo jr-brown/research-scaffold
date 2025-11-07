@@ -1,0 +1,58 @@
+### Original meta-config test
+# This should run near-instantaneously
+# wandb version at lennie_tests_wandb_root takes far longer
+
+auto_increment_rng_seed: false
+rng_seed_offset: 0
+
+folder: "configs/lennie"
+# Note this should specify the config directory relative to where you execute the main.py file
+# Note can have multiple common roots and patches, but for now only have one
+common_root:
+  - "root.yaml"
+common_patch:
+  - "patch.yaml"
+
+bonus_dict:
+  name: "bonus_name"
+  function_kwargs:
+    bonus_arg: "bonus_arg"
+
+# New, each block of experiment_sets is equivalent, denoted by line breaks
+experiments:
+  # The general case, varying several config elements
+  - repeats: 1
+    expt_root: "formats/axes.yaml"
+    config_axes:
+      - - "level1a.yaml"
+        - "level1b.yaml"
+      - - "level2.yaml"
+
+  # Maybe we want to vary a single element
+  - repeats: 1
+    expt_root: "formats/axes.yaml"
+    config_axes:
+      - - "level1a.yaml"
+        - "level1b.yaml"
+  - repeats: 1
+    expt_root: "formats/options.yaml"
+    config_options:
+      - "level1a.yaml"
+      - "level1b.yaml"
+
+  # Maybe we want to combine several elements into a single run
+  - repeats: 1
+    expt_root: "formats/axes.yaml"
+    config_axes:
+      - - "level1a.yaml"
+      - - "level2.yaml"
+  - repeats: 1
+    expt_root: "formats/steps.yaml"
+    config_steps:
+      - "level1a.yaml"
+      - "level2.yaml"
+
+  # We can also do a single run more succinctly via
+  - repeats: 2
+    expt_root: "formats/single.yaml"
+    config: "level1a.yaml"
