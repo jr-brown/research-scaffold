@@ -34,7 +34,7 @@ from .util import (
     recursive_dict_update,
     check_name_sub_general,
 )
-from .file_io import load
+from .file_io import load, save
 
 
 log = get_logger(__name__)
@@ -43,7 +43,8 @@ log = get_logger(__name__)
 ### Type definitions
 StringKeyDict = dict[str, Any]
 FunctionMap = dict[str, Callable]
-ConfigPathOrMultiple = Union[str, list[str]]
+ConfigPathOrDict = Union[str, StringKeyDict]
+ConfigPathOrMultiple = Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]
 ConfigPathAxes = list[ConfigPathOrMultiple]
 
 
@@ -58,6 +59,7 @@ class Config:
     function_kwargs: Optional[StringKeyDict] = None
     function_args: Optional[list] = None
     log_file_path: Optional[str] = None
+    save_config_path: Optional[str] = None
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
     wandb_group: Optional[str] = None
@@ -83,17 +85,32 @@ class ProductExperimentSpec:
     # (no defaults needed because this will always be constructed by read_experiment_set)
     repeats: int
     config_axes: ConfigPathAxes
-    expt_root: Optional[str]
-    expt_patch: Optional[str]
+    expt_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
+    expt_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
 
 
 @dataclass
 class SweepExperimentSpec:
     """Type definition for a SweepExperimentSpec."""
 
-    sweep_config: str
-    base_config: Optional[str]
+    sweep_config: Union[str, StringKeyDict]
+    base_config: Optional[Union[str, StringKeyDict]]
     sweep_count: Optional[int]
+
+
+@dataclass
+class SweepConfig:
+    """Type definition for a standalone Sweep Config."""
+    
+    method: str
+    parameters: dict
+    metric: Optional[dict] = None
+    base_config: Optional[Union[str, StringKeyDict]] = None
+    base_config_paths: Optional[list[Union[str, StringKeyDict]]] = None
+    sweep_count: Optional[int] = None
+    sweep_name: Optional[str] = None
+    project: Optional[str] = None
+    entity: Optional[str] = None
 
 
 ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
@@ -105,8 +122,8 @@ class MetaConfig:
 
     experiments: list[ExperimentSpec]
     folder: Optional[str]
-    common_root: Optional[str | list[str]]
-    common_patch: Optional[str | list[str]]
+    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
+    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
     auto_increment_rng_seed: bool
     rng_seed_offset: int
     bonus_dict: Optional[StringKeyDict]
@@ -118,6 +135,38 @@ class MetaConfig:
 
 
 ### Functions
+
+def detect_config_type(config_dict: StringKeyDict) -> str:
+    """
+    Detect config type by trying to instantiate each dataclass.
+    Returns "single", "meta", or "sweep".
+    """
+    # Try MetaConfig
+    try:
+        load_meta_config(config_dict)
+        return "meta"
+    except Exception:
+        pass
+    
+    # Try SweepConfig  
+    try:
+        SweepConfig(**config_dict)
+        return "sweep"
+    except Exception:
+        pass
+    
+    # Try Config
+    try:
+        Config(**config_dict)
+        return "single"
+    except Exception:
+        pass
+    
+    raise ValueError(
+        f"Could not identify config type. Got keys: {list(config_dict.keys())}"
+    )
+
+
 def get_git_commit_hash() -> str:
     """Get the current git commit hash."""
     return (
@@ -132,21 +181,39 @@ def load_dict_from_yaml(yaml_path: str) -> StringKeyDict:
     return load("yaml", yaml_path)
 
 
+def load_config_dict(config_path_or_dict: Union[str, StringKeyDict]) -> StringKeyDict:
+    """
+    Load config dict from path or return dict if already a dict.
+    
+    Args:
+        config_path_or_dict: Either a file path string or an inline config dict
+        
+    Returns:
+        Dictionary with config data
+    """
+    if isinstance(config_path_or_dict, dict):
+        return config_path_or_dict
+    elif isinstance(config_path_or_dict, str):
+        return load_dict_from_yaml(config_path_or_dict)
+    else:
+        raise TypeError(f"Expected str or dict, got {type(config_path_or_dict)}")
+
+
 def load_config(cfg_path: str) -> Config:
     """Loads a config from corresponding file path (including .yaml extension)."""
     return Config(**load_dict_from_yaml(cfg_path))
 
 
 def load_and_compose_config_steps(
-    cfg_paths: list[str],
+    cfg_paths: list[Union[str, StringKeyDict]],
     compositions: Optional[dict[str, Callable]] = None,
     bonus_dict: dict = {},
 ) -> Config:
-    """Return single config from iteratively combining configs loaded from cfg_paths."""
+    """Return single config from iteratively combining configs loaded from cfg_paths (paths or inline dicts)."""
     config_dict = {}
 
     for cfg_path in cfg_paths:
-        partial_config_dict = load_dict_from_yaml(cfg_path)
+        partial_config_dict = load_config_dict(cfg_path)
         config_dict = recursive_dict_update(
             config_dict, partial_config_dict, compositions=compositions
         )
@@ -200,9 +267,9 @@ def parse_experiment_set(set_specific_dict: StringKeyDict) -> ExperimentSpec:
     )
 
 
-def load_meta_config(meta_cfg_path: str) -> MetaConfig:
-    """Loads a meta config from corresponding file path (including .yaml extension)."""
-    mc_dict = load_dict_from_yaml(meta_cfg_path)
+def load_meta_config(meta_cfg_path: Union[str, StringKeyDict]) -> MetaConfig:
+    """Loads a meta config from path or inline dict (including .yaml extension if path)."""
+    mc_dict = load_config_dict(meta_cfg_path)
     experiments = [parse_experiment_set(specs) for specs in mc_dict["experiments"]]
     return MetaConfig(
         experiments=experiments,
@@ -228,6 +295,7 @@ def execute_from_config(
     wandb_entity: Optional[str] = None,
     wandb_tags: Optional[list[str]] = None,
     log_file_path: Optional[str] = None,
+    save_config_path: Optional[str] = None,
     run_name_dummy: str = "RUN_NAME",
     run_group_dummy: str = "RUN_GROUP",
     sweep_name: Optional[str] = None,
@@ -296,6 +364,33 @@ def execute_from_config(
         function_args, n_sweep_subs = check_sweep_name_sub(function_args, count=n_sweep_subs)
         function_kwargs, n_sweep_subs = check_sweep_name_sub(function_kwargs, count=n_sweep_subs)
 
+    # Save config to file if requested
+    if save_config_path is not None:
+        save_config_path_sub, _ = check_name_sub(save_config_path, count=0)
+        save_config_path_sub, _ = check_group_sub(save_config_path_sub, count=0)
+        if check_sweep_name_sub:
+            save_config_path_sub, _ = check_sweep_name_sub(save_config_path_sub, count=0)
+        
+        # Create a dict with the full config including substituted values
+        config_to_save = {
+            "name": name,
+            "function_name": function_name,
+            "function_args": function_args,
+            "function_kwargs": function_kwargs,
+            "wandb_project": wandb_project,
+            "wandb_entity": wandb_entity,
+            "wandb_group": wandb_group,
+            "wandb_tags": wandb_tags,
+            "log_file_path": log_file_path,
+            "save_config_path": save_config_path_sub,
+        }
+        
+        try:
+            save("yaml", config_to_save, save_config_path_sub, overwrite=True)
+            log.info(f"Saved config to: {save_config_path_sub}")
+        except Exception as e:
+            log.warning(f"Failed to save config to {save_config_path_sub}: {e}")
+
     if wandb_project is not None and is_main_process:
         with wandb.init(
             entity=wandb_entity,
@@ -318,29 +413,29 @@ def execute_from_config(
 
 
 def combine_root_tgt_patch(
-    tgt: str | list[str],
-    common_root: Optional[str | list[str]] = None,
-    common_patch: Optional[str | list[str]] = None,
-) -> list[str]:
+    tgt: Union[str, StringKeyDict, list[Union[str, StringKeyDict]]],
+    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
+    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
+) -> list[Union[str, StringKeyDict]]:
     """
     Combines together the target(s) with any common configs
     Options:
-    - common_root: if str or list of str then these paths are prefixed to the start of tgt
-    - common_patch: if str or list of str then these paths are appended to the end of tgt
+    - common_root: if str/dict or list of str/dict then these are prefixed to the start of tgt
+    - common_patch: if str/dict or list of str/dict then these are appended to the end of tgt
     """
 
-    if isinstance(tgt, str):
+    if isinstance(tgt, (str, dict)):
         tgt = [tgt]
 
     assert isinstance(tgt, list)
 
     if common_root is not None:
-        if isinstance(common_root, str):
+        if isinstance(common_root, (str, dict)):
             common_root = [common_root]
         tgt = common_root + tgt
 
     if common_patch is not None:
-        if isinstance(common_patch, str):
+        if isinstance(common_patch, (str, dict)):
             common_patch = [common_patch]
         tgt = tgt + common_patch
 
@@ -348,20 +443,20 @@ def combine_root_tgt_patch(
 
 
 def prepend_folder(
-    config_stems: list[str],
+    config_stems: list[Union[str, StringKeyDict]],
     folder: Optional[str] = None,
-) -> list[str]:
-    """Prepends folder to each config stem in config_stems."""
+) -> list[Union[str, StringKeyDict]]:
+    """Prepends folder to each config stem in config_stems (only for str paths, not dicts)."""
     log.debug(f"Adding folder {folder} to config_stems {config_stems}")
-    config_paths = [path.join(folder, t) for t in config_stems]
+    config_paths = [path.join(folder, t) if isinstance(t, str) else t for t in config_stems]
     return config_paths
 
 
 def process_product_experiment_spec(
     product_experiment_specs: ProductExperimentSpec,
     folder: Optional[str] = None,
-    common_root: Optional[str | list[str]] = None,
-    common_patch: Optional[str | list[str]] = None,
+    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
+    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
     bonus_dict: StringKeyDict = {},
 ) -> list[Config]:
     """
@@ -460,11 +555,11 @@ def process_sweep_experiment_spec(
     """
     # Build full path to sweep config
     sweep_config_path = sweep_spec.sweep_config
-    if folder:
+    if folder and isinstance(sweep_config_path, str):
         sweep_config_path = path.join(folder, sweep_config_path)
     
     # Load sweep config
-    sweep_dict = load_dict_from_yaml(sweep_config_path)
+    sweep_dict = load_config_dict(sweep_config_path)
     
     # Handle base_config with composition
     base_config_path = sweep_spec.base_config or sweep_dict.get("base_config")
@@ -515,10 +610,10 @@ def execute_sweep_from_dict(
         base_config = load_and_compose_config_steps(base_config_paths)
     
     elif base_config_path is not None:
-        log.info(f"Loading base config from {base_config_path}")
+        log.info(f"Loading base config from {base_config_path if isinstance(base_config_path, str) else 'inline dict'}")
         
         # Check if it's a meta-config
-        base_dict = load_dict_from_yaml(base_config_path)
+        base_dict = load_config_dict(base_config_path)
         is_meta = "experiments" in base_dict
         
         if is_meta:
@@ -612,6 +707,7 @@ def execute_sweep_from_dict(
                 wandb_entity=base_config.wandb_entity,
                 wandb_tags=base_config.wandb_tags,
                 log_file_path=base_config.log_file_path,
+                save_config_path=base_config.save_config_path,
                 sweep_name=sweep_name,  # For SWEEP_NAME substitution
             )
     
@@ -624,16 +720,16 @@ def execute_sweep_from_dict(
 
 def execute_sweep(
     function_map: FunctionMap,
-    sweep_config_path: str,
+    sweep_config_path: Union[str, StringKeyDict],
 ) -> None:
-    """Execute a wandb sweep from sweep config file."""
+    """Execute a wandb sweep from sweep config file or inline dict."""
     
     git_commit_hash = get_git_commit_hash()
     log.info(f"Executing sweep, {git_commit_hash=}")
     
     # Load sweep config
     log.info("Loading sweep config...")
-    sweep_dict = load_dict_from_yaml(sweep_config_path)
+    sweep_dict = load_config_dict(sweep_config_path)
     
     # Execute using the dict version
     execute_sweep_from_dict(function_map, sweep_dict)
@@ -666,11 +762,26 @@ def execute_experiments(
         execute_sweep(function_map, sweep_config_path)
         return
 
+    configs = []
+    
     if config_path is not None:
         log.info("Loading config...")
-        configs = [load_config(config_path)]
+        
+        # Auto-detect config type
+        config_dict = load_config_dict(config_path)
+        config_type = detect_config_type(config_dict)
+        log.info(f"Detected config type: {config_type}")
+        
+        # Delegate to appropriate handler
+        if config_type == "meta":
+            meta_config_path = config_path  # Reuse existing meta config logic below
+        elif config_type == "sweep":
+            execute_sweep(function_map, config_path)
+            return
+        else:  # single
+            configs = [load_config(config_path)]
 
-    elif meta_config_path is not None:
+    if meta_config_path is not None:
         log.info("Loading meta config...")
         meta_config = load_meta_config(meta_config_path)
         log.info("========== Meta Config ===========\n" + pformat(meta_config))
@@ -704,9 +815,9 @@ def execute_experiments(
         
         return
 
-    else:
+    if not configs:
         log.warning("Please use -c, -m, or -s to specify a config, meta config, or sweep config to run!")
-        configs = []
+        return
 
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")

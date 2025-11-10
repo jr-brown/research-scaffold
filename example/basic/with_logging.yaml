@@ -2,6 +2,7 @@ name: "my_experiment"
 time_stamp_name: true
 function_name: "example_with_logging"
 log_file_path: "logs/RUN_NAME/output.log"
+save_config_path: "logs/RUN_NAME/config.yaml"
 
 function_kwargs:
   experiment_name: "baseline_test"
