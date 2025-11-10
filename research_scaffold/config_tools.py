@@ -98,6 +98,21 @@ class SweepExperimentSpec:
     sweep_count: Optional[int]
 
 
+@dataclass
+class SweepConfig:
+    """Type definition for a standalone Sweep Config."""
+    
+    method: str
+    parameters: dict
+    metric: Optional[dict] = None
+    base_config: Optional[Union[str, StringKeyDict]] = None
+    base_config_paths: Optional[list[Union[str, StringKeyDict]]] = None
+    sweep_count: Optional[int] = None
+    sweep_name: Optional[str] = None
+    project: Optional[str] = None
+    entity: Optional[str] = None
+
+
 ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
 
 
@@ -120,6 +135,38 @@ class MetaConfig:
 
 
 ### Functions
+
+def detect_config_type(config_dict: StringKeyDict) -> str:
+    """
+    Detect config type by trying to instantiate each dataclass.
+    Returns "single", "meta", or "sweep".
+    """
+    # Try MetaConfig
+    try:
+        load_meta_config(config_dict)
+        return "meta"
+    except Exception:
+        pass
+    
+    # Try SweepConfig  
+    try:
+        SweepConfig(**config_dict)
+        return "sweep"
+    except Exception:
+        pass
+    
+    # Try Config
+    try:
+        Config(**config_dict)
+        return "single"
+    except Exception:
+        pass
+    
+    raise ValueError(
+        f"Could not identify config type. Got keys: {list(config_dict.keys())}"
+    )
+
+
 def get_git_commit_hash() -> str:
     """Get the current git commit hash."""
     return (
@@ -715,11 +762,26 @@ def execute_experiments(
         execute_sweep(function_map, sweep_config_path)
         return
 
+    configs = []
+    
     if config_path is not None:
         log.info("Loading config...")
-        configs = [load_config(config_path)]
+        
+        # Auto-detect config type
+        config_dict = load_config_dict(config_path)
+        config_type = detect_config_type(config_dict)
+        log.info(f"Detected config type: {config_type}")
+        
+        # Delegate to appropriate handler
+        if config_type == "meta":
+            meta_config_path = config_path  # Reuse existing meta config logic below
+        elif config_type == "sweep":
+            execute_sweep(function_map, config_path)
+            return
+        else:  # single
+            configs = [load_config(config_path)]
 
-    elif meta_config_path is not None:
+    if meta_config_path is not None:
         log.info("Loading meta config...")
         meta_config = load_meta_config(meta_config_path)
         log.info("========== Meta Config ===========\n" + pformat(meta_config))
@@ -753,9 +815,9 @@ def execute_experiments(
         
         return
 
-    else:
+    if not configs:
         log.warning("Please use -c, -m, or -s to specify a config, meta config, or sweep config to run!")
-        configs = []
+        return
 
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")
