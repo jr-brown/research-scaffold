@@ -1,0 +1,6 @@
+name: "sweep_test"
+function_name: "test_function"
+
+function_kwargs:
+  base_param: "from_base"
+

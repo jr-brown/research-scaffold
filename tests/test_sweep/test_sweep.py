@@ -462,3 +462,39 @@ def test_sweep_name_defaults_to_sweep_id(mock_wandb, mock_git):
     assert mock_wandb['sweep'].called
     assert mock_wandb['sweep'].return_value == "mock-sweep-123"
 
+
+def test_sweep_with_inline_common_root_patch(mock_wandb, mock_git):
+    """Test that sweeps accept inline dicts in common_root and common_patch"""
+    from research_scaffold.config_tools import execute_experiments
+    
+    call_tracker = []
+    
+    def test_fn(**kwargs):
+        call_tracker.append(kwargs)
+    
+    function_map = {"test_function": test_fn}
+    
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(TEST_DIR)
+        
+        execute_experiments(
+            function_map=function_map,
+            meta_config_path="meta_configs/sweep_with_inline_root_patch.yaml",
+        )
+        
+        # Get the train function and call it
+        train_fn = mock_wandb['train_function']['function']
+        mock_wandb['config']['sweep_param'] = 1
+        train_fn()
+        
+    finally:
+        os.chdir(old_cwd)
+    
+    # Verify all params from root, base, patch, and sweep are present
+    assert len(call_tracker) == 1
+    assert call_tracker[0]['root_param'] == "from_root"
+    assert call_tracker[0]['base_param'] == "from_base"
+    assert call_tracker[0]['patch_param'] == "from_patch"
+    assert call_tracker[0]['sweep_param'] == 1
+

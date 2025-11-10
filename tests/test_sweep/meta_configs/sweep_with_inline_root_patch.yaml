@@ -1,0 +1,17 @@
+common_root:
+  function_kwargs:
+    root_param: "from_root"
+
+common_patch:
+  function_kwargs:
+    patch_param: "from_patch"
+
+experiments:
+  - sweep_config:
+      method: grid
+      project: "test-project"
+      parameters:
+        sweep_param:
+          values: [1, 2]
+      base_config: "configs/inline_sweep_base.yaml"
+

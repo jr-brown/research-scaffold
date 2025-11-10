@@ -43,9 +43,9 @@ log = get_logger(__name__)
 ### Type definitions
 StringKeyDict = dict[str, Any]
 FunctionMap = dict[str, Callable]
-ConfigPathOrDict = Union[str, StringKeyDict]
-ConfigPathOrMultiple = Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]
-ConfigPathAxes = list[ConfigPathOrMultiple]
+ConfigInput = Union[str, StringKeyDict]  # Single config path or inline dict
+ConfigInputMultiple = Union[ConfigInput, list[ConfigInput]]  # Single or list of configs
+ConfigPathAxes = list[ConfigInputMultiple]
 
 
 @dataclass
@@ -85,16 +85,16 @@ class ProductExperimentSpec:
     # (no defaults needed because this will always be constructed by read_experiment_set)
     repeats: int
     config_axes: ConfigPathAxes
-    expt_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
-    expt_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
+    expt_root: Optional[ConfigInputMultiple]
+    expt_patch: Optional[ConfigInputMultiple]
 
 
 @dataclass
 class SweepExperimentSpec:
     """Type definition for a SweepExperimentSpec."""
 
-    sweep_config: Union[str, StringKeyDict]
-    base_config: Optional[Union[str, StringKeyDict]]
+    sweep_config: ConfigInput
+    base_config: Optional[ConfigInput]
     sweep_count: Optional[int]
 
 
@@ -105,8 +105,8 @@ class SweepConfig:
     method: str
     parameters: dict
     metric: Optional[dict] = None
-    base_config: Optional[Union[str, StringKeyDict]] = None
-    base_config_paths: Optional[list[Union[str, StringKeyDict]]] = None
+    base_config: Optional[ConfigInput] = None
+    base_config_paths: Optional[list[ConfigInput]] = None
     sweep_count: Optional[int] = None
     sweep_name: Optional[str] = None
     project: Optional[str] = None
@@ -122,8 +122,8 @@ class MetaConfig:
 
     experiments: list[ExperimentSpec]
     folder: Optional[str]
-    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
-    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]]
+    common_root: Optional[ConfigInputMultiple]
+    common_patch: Optional[ConfigInputMultiple]
     auto_increment_rng_seed: bool
     rng_seed_offset: int
     bonus_dict: Optional[StringKeyDict]
@@ -181,7 +181,7 @@ def load_dict_from_yaml(yaml_path: str) -> StringKeyDict:
     return load("yaml", yaml_path)
 
 
-def load_config_dict(config_path_or_dict: Union[str, StringKeyDict]) -> StringKeyDict:
+def load_config_dict(config_path_or_dict: ConfigInput) -> StringKeyDict:
     """
     Load config dict from path or return dict if already a dict.
     
@@ -205,7 +205,7 @@ def load_config(cfg_path: str) -> Config:
 
 
 def load_and_compose_config_steps(
-    cfg_paths: list[Union[str, StringKeyDict]],
+    cfg_paths: list[ConfigInput],
     compositions: Optional[dict[str, Callable]] = None,
     bonus_dict: dict = {},
 ) -> Config:
@@ -267,7 +267,7 @@ def parse_experiment_set(set_specific_dict: StringKeyDict) -> ExperimentSpec:
     )
 
 
-def load_meta_config(meta_cfg_path: Union[str, StringKeyDict]) -> MetaConfig:
+def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
     """Loads a meta config from path or inline dict (including .yaml extension if path)."""
     mc_dict = load_config_dict(meta_cfg_path)
     experiments = [parse_experiment_set(specs) for specs in mc_dict["experiments"]]
@@ -413,10 +413,10 @@ def execute_from_config(
 
 
 def combine_root_tgt_patch(
-    tgt: Union[str, StringKeyDict, list[Union[str, StringKeyDict]]],
-    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
-    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
-) -> list[Union[str, StringKeyDict]]:
+    tgt: ConfigInputMultiple,
+    common_root: Optional[ConfigInputMultiple] = None,
+    common_patch: Optional[ConfigInputMultiple] = None,
+) -> list[ConfigInput]:
     """
     Combines together the target(s) with any common configs
     Options:
@@ -443,9 +443,9 @@ def combine_root_tgt_patch(
 
 
 def prepend_folder(
-    config_stems: list[Union[str, StringKeyDict]],
+    config_stems: list[ConfigInput],
     folder: Optional[str] = None,
-) -> list[Union[str, StringKeyDict]]:
+) -> list[ConfigInput]:
     """Prepends folder to each config stem in config_stems (only for str paths, not dicts)."""
     log.debug(f"Adding folder {folder} to config_stems {config_stems}")
     config_paths = [path.join(folder, t) if isinstance(t, str) else t for t in config_stems]
@@ -455,8 +455,8 @@ def prepend_folder(
 def process_product_experiment_spec(
     product_experiment_specs: ProductExperimentSpec,
     folder: Optional[str] = None,
-    common_root: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
-    common_patch: Optional[Union[str, StringKeyDict, list[Union[str, StringKeyDict]]]] = None,
+    common_root: Optional[ConfigInputMultiple] = None,
+    common_patch: Optional[ConfigInputMultiple] = None,
     bonus_dict: StringKeyDict = {},
 ) -> list[Config]:
     """
@@ -545,8 +545,8 @@ def process_meta_config(mc: MetaConfig) -> list[Config]:
 def process_sweep_experiment_spec(
     sweep_spec: SweepExperimentSpec,
     folder: Optional[str] = None,
-    common_root: Optional[str | list[str]] = None,
-    common_patch: Optional[str | list[str]] = None,
+    common_root: Optional[ConfigInputMultiple] = None,
+    common_patch: Optional[ConfigInputMultiple] = None,
     bonus_dict: StringKeyDict = {},
 ) -> StringKeyDict:
     """
@@ -720,7 +720,7 @@ def execute_sweep_from_dict(
 
 def execute_sweep(
     function_map: FunctionMap,
-    sweep_config_path: Union[str, StringKeyDict],
+    sweep_config_path: ConfigInput,
 ) -> None:
     """Execute a wandb sweep from sweep config file or inline dict."""
     
