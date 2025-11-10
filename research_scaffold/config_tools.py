@@ -34,7 +34,7 @@ from .util import (
     recursive_dict_update,
     check_name_sub_general,
 )
-from .file_io import load
+from .file_io import load, save
 
 
 log = get_logger(__name__)
@@ -58,6 +58,7 @@ class Config:
     function_kwargs: Optional[StringKeyDict] = None
     function_args: Optional[list] = None
     log_file_path: Optional[str] = None
+    save_config_path: Optional[str] = None
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
     wandb_group: Optional[str] = None
@@ -228,6 +229,7 @@ def execute_from_config(
     wandb_entity: Optional[str] = None,
     wandb_tags: Optional[list[str]] = None,
     log_file_path: Optional[str] = None,
+    save_config_path: Optional[str] = None,
     run_name_dummy: str = "RUN_NAME",
     run_group_dummy: str = "RUN_GROUP",
     sweep_name: Optional[str] = None,
@@ -295,6 +297,33 @@ def execute_from_config(
     if check_sweep_name_sub:
         function_args, n_sweep_subs = check_sweep_name_sub(function_args, count=n_sweep_subs)
         function_kwargs, n_sweep_subs = check_sweep_name_sub(function_kwargs, count=n_sweep_subs)
+
+    # Save config to file if requested
+    if save_config_path is not None:
+        save_config_path_sub, _ = check_name_sub(save_config_path, count=0)
+        save_config_path_sub, _ = check_group_sub(save_config_path_sub, count=0)
+        if check_sweep_name_sub:
+            save_config_path_sub, _ = check_sweep_name_sub(save_config_path_sub, count=0)
+        
+        # Create a dict with the full config including substituted values
+        config_to_save = {
+            "name": name,
+            "function_name": function_name,
+            "function_args": function_args,
+            "function_kwargs": function_kwargs,
+            "wandb_project": wandb_project,
+            "wandb_entity": wandb_entity,
+            "wandb_group": wandb_group,
+            "wandb_tags": wandb_tags,
+            "log_file_path": log_file_path,
+            "save_config_path": save_config_path_sub,
+        }
+        
+        try:
+            save("yaml", config_to_save, save_config_path_sub, overwrite=True)
+            log.info(f"Saved config to: {save_config_path_sub}")
+        except Exception as e:
+            log.warning(f"Failed to save config to {save_config_path_sub}: {e}")
 
     if wandb_project is not None and is_main_process:
         with wandb.init(
@@ -612,6 +641,7 @@ def execute_sweep_from_dict(
                 wandb_entity=base_config.wandb_entity,
                 wandb_tags=base_config.wandb_tags,
                 log_file_path=base_config.log_file_path,
+                save_config_path=base_config.save_config_path,
                 sweep_name=sweep_name,  # For SWEEP_NAME substitution
             )
     
