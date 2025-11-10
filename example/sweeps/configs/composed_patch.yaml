@@ -1,4 +1,4 @@
 function_kwargs:
   model_size: 256
-  output_dir: "results/SWEEP_NAME/runs"
+  output_dir: "local/SWEEP_NAME/runs"
 
