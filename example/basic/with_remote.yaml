@@ -1,0 +1,39 @@
+name: "remote_experiment"
+function_name: "example_simple"
+time_stamp_name: true
+
+# Logging configuration - logs will be saved to file and pushed to git
+log_file_path: "outputs/RUN_NAME/output.log"
+save_config_path: "outputs/RUN_NAME/config.yaml"
+
+function_kwargs:
+  param_a: "hello_from_remote"
+  param_b: 42
+  param_c: true
+
+# Remote execution configuration
+instance:
+  # SkyPilot resources - passed directly to sky.Resources()
+  # See https://skypilot.readthedocs.io/ for available options
+  resources:
+    # Specify accelerators (GPUs)
+    # Note: T4 is NOT available on Vast. Available GPUs: V100, A100, L40S, H100, H200
+    accelerators: "V100:1"  # Request 1 V100 GPU (cheapest option on Vast)
+    # Or use: accelerators: "V100:2" for 2 V100 GPUs
+    # Or: accelerators: "A100:1" for 1 A100 GPU
+    # Or: accelerators: "L40S:1" for 1 L40S GPU
+    
+    # Optional: specify cloud/region
+    # infra: "aws/us-east-1"  # Use AWS in us-east-1
+    # infra: "gcp/us-central1"  # Use GCP in us-central1
+    
+    # Optional: use spot instances (cheaper but can be preempted)
+    # use_spot: true
+    
+    # Optional: override default image
+    # image_id: "skypilot:gpu-ubuntu-2004"  # Default GPU image
+    # image_id: "docker:nvidia/cuda:12.0.0-runtime-ubuntu22.04"  # Custom Docker image
+  
+  # Whether to commit and push results back to git
+  commit_results: true  # Set to true to auto-commit and push logs/results to git
+
