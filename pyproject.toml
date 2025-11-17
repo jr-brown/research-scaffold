@@ -1,0 +1,11 @@
+[project]
+name = "research-scaffold"
+version = "0.1.0"
+description = "Jason Brown's research scaffold"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beartype>=0.22.5",
+    "pyyaml>=6.0.3",
+    "wandb>=0.23.0",
+]
