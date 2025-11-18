@@ -65,6 +65,7 @@ def build_experiment_run_command(
     commit_results: bool,
     git_user_name: str,
     git_user_email: str,
+    repo_url: str,
 ) -> str:
     """Build the run command that executes the actual experiment.
     
@@ -72,10 +73,11 @@ def build_experiment_run_command(
         config_dict: The experiment configuration
         rel_cwd: Relative path from repo root to current working directory
         job_name: Name of the job
-        current_branch: Current git branch name
+        current_branch: Current git branch name (base branch for PR)
         commit_results: Whether to commit and push results
         git_user_name: Git user name for commits
         git_user_email: Git user email for commits
+        repo_url: Git repository URL (for extracting owner/repo)
         
     Returns:
         Shell command string to execute the experiment
@@ -91,6 +93,11 @@ def build_experiment_run_command(
     
     # Convert git remote to SSH (workdir is synced by now)
     commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|https://github.com/|git@github.com:|')")
+    
+    # Create a new branch for the experiment results
+    if commit_results:
+        results_branch = f"results/{current_branch}-{job_name}"
+        commands.append(f"git checkout -b {results_branch}")
     
     # Change to the working directory if needed
     if rel_cwd:
@@ -115,11 +122,27 @@ execute_from_config(config, function_map=function_map, **config_dict)
     
     # Commit and push results if requested
     if commit_results:
+        results_branch = f"results/{current_branch}-{job_name}"
+        # Extract owner/repo from git URL for PR creation
         commands.append(f"""git config --global user.email "{git_user_email}"
 git config --global user.name "{git_user_name}"
 git add -A
 if git commit -m "Results from {job_name}"; then
-    git push origin {current_branch}
+    # Push to results branch
+    git push origin {results_branch}
+    
+    # Create PR using GitHub API
+    if [ -n "$GITHUB_TOKEN" ]; then
+        # Extract owner and repo from git URL
+        REPO_FULL=$(echo "{repo_url}" | sed 's/.*github.com[:/]//g' | sed 's/.git$//')
+        
+        curl -s -X POST \\
+            -H "Authorization: token $GITHUB_TOKEN" \\
+            -H "Accept: application/vnd.github.v3+json" \\
+            https://api.github.com/repos/$REPO_FULL/pulls \\
+            -d '{{"title":"Results from {job_name}","head":"{results_branch}","base":"{current_branch}","body":"Automated results from remote execution"}}' \\
+            | grep -E '"html_url"|"message"' || echo "PR created or already exists"
+    fi
 fi
 """)
     
@@ -197,6 +220,7 @@ def execute_config_remotely(
         commit_results=instance_config.commit_results,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
+        repo_url=repo_url,
     )
     
     # Inject the experiment run command into the Sky config
