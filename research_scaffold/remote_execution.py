@@ -1,28 +1,3 @@
-"""
-Remote Execution Module for Research Scaffold
-
-This module enables remote execution of experiments using SkyPilot.
-
-Usage:
-------
-1. Create a SkyPilot YAML config file (e.g., sky_config.yaml) in your repo with:
-   - resources: GPU/CPU requirements, cloud provider, etc.
-   - envs: Environment variables (WANDB_API_KEY, etc.)
-   - setup: Commands to set up the environment (install deps, etc.)
-   - run: Base run command (experiment command will be appended)
-
-2. Reference it in your experiment config:
-   instance:
-     sky_config: "path/to/sky_config.yaml"  # Optional: uses SKY_PATH env var if not set
-     patch:  # Optional: Override sky config values
-       resources:
-         accelerators: "A100:1"
-     commit_results: true  # Auto-commit and push results
-
-3. Run your experiment normally - it will execute remotely!
-
-See example/sky_config.yaml and example/basic/with_remote.yaml for examples.
-"""
 
 import os
 import json
@@ -30,6 +5,7 @@ import base64
 import uuid
 import yaml
 import tempfile
+from typing import Optional
 
 import git
 import sky
@@ -62,20 +38,24 @@ def build_experiment_run_command(
     rel_cwd: str,
     job_name: str,
     current_branch: str,
-    commit_results: bool,
+    commit_paths: Optional[list[str]],
     git_user_name: str,
     git_user_email: str,
+    repo_url: str,
 ) -> str:
     """Build the run command that executes the actual experiment.
+    
+    If commit_paths is provided, commits the specified paths/patterns to the current branch.
     
     Args:
         config_dict: The experiment configuration
         rel_cwd: Relative path from repo root to current working directory
         job_name: Name of the job
         current_branch: Current git branch name
-        commit_results: Whether to commit and push results
+        commit_paths: List of paths/patterns to commit (e.g., ["outputs/**", "logs/**"])
         git_user_name: Git user name for commits
         git_user_email: Git user email for commits
+        repo_url: Git repository URL
         
     Returns:
         Shell command string to execute the experiment
@@ -114,12 +94,20 @@ execute_from_config(config, function_map=function_map, **config_dict)
 " """)
     
     # Commit and push results if requested
-    if commit_results:
+    if commit_paths:
+        # Build git add commands for each path
+        add_commands = "\n".join([f"git add {path}" for path in commit_paths])
+        
         commands.append(f"""git config --global user.email "{git_user_email}"
 git config --global user.name "{git_user_name}"
-git add -A
+
+# Add specified paths
+{add_commands}
+
+# Commit and push if there are changes
 if git commit -m "Results from {job_name}"; then
     git push origin {current_branch}
+    echo "✅ Results committed and pushed to branch: {current_branch}"
 fi
 """)
     
@@ -194,9 +182,10 @@ def execute_config_remotely(
         rel_cwd=rel_cwd,
         job_name=config.name,
         current_branch=current_branch,
-        commit_results=instance_config.commit_results,
+        commit_paths=instance_config.commit,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
+        repo_url=repo_url,
     )
     
     # Inject the experiment run command into the Sky config
@@ -247,7 +236,7 @@ def execute_config_remotely(
             exit_code = sky.tail_logs(cluster_name, job_id, follow=True)
             
             if exit_code == 0:
-                log.info(f"Job completed successfully. Cluster will be torn down.")
+                log.info("Job completed successfully. Cluster will be torn down.")
             else:
                 log.warning(f"Job failed with exit code {exit_code}. Cluster will be torn down.")
         else:
