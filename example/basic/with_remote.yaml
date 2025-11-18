@@ -23,5 +23,6 @@ instance:
     resources:
       accelerators: "V100:1"  # Override to use V100 instead of what's in sky_config
   
-  # Whether to commit and push results back to git
-  commit_results: true
+  # Specify paths to commit after experiment completes
+  commit:
+    - "outputs/**"

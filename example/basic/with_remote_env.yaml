@@ -21,5 +21,7 @@ instance:
     resources:
       accelerators: "V100:1"
   
-  commit_results: true
+  # Specify paths to commit after experiment completes
+  commit:
+    - "outputs/**"
 
