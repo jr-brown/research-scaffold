@@ -45,6 +45,8 @@ from .util import (
     get_time_stamp,
     recursive_dict_update,
     check_name_sub_general,
+    load_config_dict,
+    deep_update,
 )
 from .file_io import load, save
 
@@ -100,23 +102,6 @@ def load_dict_from_yaml(yaml_path: str) -> StringKeyDict:
     """Loads a dictionary with string keys from file path (including .yaml extension)."""
     return load("yaml", yaml_path)
 
-
-def load_config_dict(config_path_or_dict: ConfigInput) -> StringKeyDict:
-    """
-    Load config dict from path or return dict if already a dict.
-    
-    Args:
-        config_path_or_dict: Either a file path string or an inline config dict
-        
-    Returns:
-        Dictionary with config data
-    """
-    if isinstance(config_path_or_dict, dict):
-        return config_path_or_dict
-    elif isinstance(config_path_or_dict, str):
-        return load_dict_from_yaml(config_path_or_dict)
-    else:
-        raise TypeError(f"Expected str or dict, got {type(config_path_or_dict)}")
 
 
 def load_config(config_path_or_dict: ConfigInput) -> Config:

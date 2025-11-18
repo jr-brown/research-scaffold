@@ -21,7 +21,7 @@ class InstanceConfig:
     
     sky_config: Optional[str] = None  # Path to SkyPilot YAML config file (or use SKY_PATH env var)
     patch: Optional[Union[StringKeyDict, str]] = None  # Inline dict or path to patch YAML
-    commit_results: Optional[bool] = True  # Whether to commit and push results back to git
+    commit_results: Optional[bool] = False  # Whether to commit and push results back to git
 
 
 @dataclass

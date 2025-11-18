@@ -35,28 +35,9 @@ import git
 import sky
 
 from .types import Config, InstanceConfig
-from .util import get_logger
+from .util import get_logger, load_config_dict, deep_update
 
 log = get_logger(__name__)
-
-
-def deep_update(base_dict: dict, update_dict: dict) -> dict:
-    """Deep merge update_dict into base_dict.
-    
-    Args:
-        base_dict: Base dictionary
-        update_dict: Dictionary with updates to merge
-        
-    Returns:
-        Merged dictionary
-    """
-    result = base_dict.copy()
-    for key, value in update_dict.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_update(result[key], value)
-        else:
-            result[key] = value
-    return result
 
 
 def get_git_info() -> tuple[str, str, str]:
@@ -74,40 +55,6 @@ def get_git_info() -> tuple[str, str, str]:
         return repo_root, branch, url
     except git.InvalidGitRepositoryError:
         raise RuntimeError("Not in a git repository")
-
-
-def load_sky_config(config_path: str) -> dict:
-    """Load SkyPilot YAML configuration file.
-    
-    Args:
-        config_path: Path to the Sky YAML config file
-        
-    Returns:
-        Dictionary containing the Sky config
-    """
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
-
-def apply_sky_patch(sky_config: dict, patch: dict | str) -> dict:
-    """Apply a patch to the Sky configuration.
-    
-    Args:
-        sky_config: Base Sky configuration
-        patch: Either an inline dict patch or path to a YAML patch file
-        
-    Returns:
-        Patched Sky configuration
-    """
-    if isinstance(patch, str):
-        # Load patch from file
-        with open(patch, 'r') as f:
-            patch_dict = yaml.safe_load(f)
-    else:
-        patch_dict = patch
-    
-    # Deep merge the patch into the config
-    return deep_update(sky_config.copy(), patch_dict)
 
 
 def build_experiment_run_command(
@@ -143,7 +90,6 @@ def build_experiment_run_command(
     commands.append("git config --global --add safe.directory ~/sky_workdir")
     
     # Convert git remote to SSH (workdir is synced by now)
-    commands.append("# Convert git remote from HTTPS to SSH")
     commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|https://github.com/|git@github.com:|')")
     
     # Change to the working directory if needed
@@ -155,13 +101,10 @@ def build_experiment_run_command(
 import json
 import base64
 import sys
-import os
 
-# Decode config
 config_b64 = '{config_b64}'
 config_dict = json.loads(base64.b64decode(config_b64).decode())
 
-# Import and execute
 from research_scaffold.config_tools import execute_from_config
 from research_scaffold.types import Config
 from main import function_map
@@ -172,15 +115,11 @@ execute_from_config(config, function_map=function_map, **config_dict)
     
     # Commit and push results if requested
     if commit_results:
-        commands.append(f"""
-# Commit results
-git config --global user.email "{git_user_email}"
+        commands.append(f"""git config --global user.email "{git_user_email}"
 git config --global user.name "{git_user_name}"
 git add -A
 if git commit -m "Results from {job_name}"; then
     git push origin {current_branch}
-else
-    echo "Nothing to commit"
 fi
 """)
     
@@ -234,16 +173,16 @@ def execute_config_remotely(
     
     # Load the Sky configuration
     log.info(f"Loading Sky config from: {sky_config_path}")
-    sky_config = load_sky_config(sky_config_path)
+    sky_config = load_config_dict(sky_config_path)
     
     # Apply patch if provided
     if instance_config.patch:
         log.info("Applying Sky config patch")
-        sky_config = apply_sky_patch(sky_config, instance_config.patch)
+        patch_dict = load_config_dict(instance_config.patch)
+        sky_config = deep_update(sky_config, patch_dict)
     
     # Override workdir to use repo root
     sky_config['workdir'] = repo_root
-    log.info(f"Setting workdir to repo root: {repo_root}")
     
     # Prepare config dict (remove instance to avoid circular reference)
     config_dict = config.d.copy()
@@ -302,23 +241,19 @@ def execute_config_remotely(
         job_id, handle = sky.get(request_id)
         
         if handle:
-            log.info(f"Cluster provisioned. Job ID: {job_id}")
-            log.info("=" * 80)
-            log.info("STREAMING JOB LOGS:")
-            log.info("=" * 80)
+            log.info(f"Cluster provisioned. Streaming logs for job {job_id}...")
             
             # Stream the actual job execution logs
             exit_code = sky.tail_logs(cluster_name, job_id, follow=True)
             
-            log.info("=" * 80)
-            log.info(f"JOB COMPLETE - Exit code: {exit_code}")
-            log.info("=" * 80)
-            log.info("Cluster will be automatically torn down.")
+            if exit_code == 0:
+                log.info(f"Job completed successfully. Cluster will be torn down.")
+            else:
+                log.warning(f"Job failed with exit code {exit_code}. Cluster will be torn down.")
         else:
             log.warning("Job completed but no handle returned")
             
     except Exception as e:
         log.error(f"Failed to execute remote job: {e}")
-        log.info(f"Check status with: sky status {cluster_name}")
-        log.info(f"View logs: sky logs {cluster_name}")
+        log.info(f"Check status: sky status {cluster_name}")
         raise
