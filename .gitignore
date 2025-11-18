@@ -1,6 +1,5 @@
 local/
 **/*.aux
-**/*.log
 **/*.out
 **/*.pdf
 **/*.bbl
