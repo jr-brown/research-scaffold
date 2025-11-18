@@ -1,0 +1,47 @@
+name: research-gpu
+
+resources:
+  infra: vast
+  accelerators: V100:1
+  disk_size: 100
+
+workdir: .
+
+file_mounts:
+  ~/.ssh/id_ed25519: ~/.ssh/id_ed25519
+  ~/.ssh/known_hosts: ~/.ssh/known_hosts
+
+envs:
+  GITHUB_TOKEN: ${GITHUB_TOKEN}
+  HF_TOKEN: ${HF_TOKEN}
+  WANDB_API_KEY: ${WANDB_API_KEY}
+  FW_API_KEY: ${FW_API_KEY}
+  VAST_API_KEY: ${VAST_API_KEY}
+  PYTHONPATH: /home/sky-user/sky_workdir
+
+setup: |
+  echo "=== Setting up research-scaffold environment ==="
+  
+  # Set SKY_PATH for convenience
+  export SKY_PATH=~/sky_workdir/example/sky_config.yaml
+  
+  # Set up SSH keys for git
+  chmod 600 ~/.ssh/id_ed25519
+  chmod 644 ~/.ssh/known_hosts
+  
+  # Navigate to work directory
+  cd ~/sky_workdir
+  
+  # Install dependencies and the research-scaffold package
+  python3 -m pip install -r requirements.txt
+  python3 -m pip install -e .
+  
+  # Install useful utilities
+  sudo apt-get update
+  sudo apt-get install -y tmux htop
+  
+  echo "✅ Setup complete"
+
+run: |
+  echo "Instance ready. Experiment will run below..."
+  # Experiment command is injected here by remote_execution.py

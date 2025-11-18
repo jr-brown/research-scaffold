@@ -8,10 +8,9 @@ import subprocess
 
 from os import path, makedirs
 from pprint import pformat
-from typing import Any, Optional, Union
+from typing import Optional
 from collections.abc import Callable
 from functools import partial
-from dataclasses import dataclass
 
 # Third Party
 try:
@@ -25,6 +24,19 @@ import wandb
 
 
 # Local
+from .types import (
+    StringKeyDict,
+    FunctionMap,
+    ConfigInput,
+    ConfigInputMultiple,
+    InstanceConfig,
+    Config,
+    ProductExperimentSpec,
+    SweepExperimentSpec,
+    SweepConfig,
+    ExperimentSpec,
+    MetaConfig,
+)
 from .util import (
     is_main_process,
     get_logger,
@@ -36,102 +48,10 @@ from .util import (
 )
 from .file_io import load, save
 
+from .remote_execution import execute_config_remotely
+
 
 log = get_logger(__name__)
-
-
-### Type definitions
-StringKeyDict = dict[str, Any]
-FunctionMap = dict[str, Callable]
-ConfigInput = Union[str, StringKeyDict]  # Single config path or inline dict
-ConfigInputMultiple = Union[ConfigInput, list[ConfigInput]]  # Single or list of configs
-ConfigPathAxes = list[ConfigInputMultiple]
-
-
-@dataclass
-class Config:
-    """Type definition for a Config."""
-
-    name: str
-    function_name: str
-    # Fields with defaults
-    time_stamp_name: Optional[bool] = False
-    function_kwargs: Optional[StringKeyDict] = None
-    function_args: Optional[list] = None
-    log_file_path: Optional[str] = None
-    save_config_path: Optional[str] = None
-    wandb_project: Optional[str] = None
-    wandb_entity: Optional[str] = None
-    wandb_group: Optional[str] = None
-    wandb_tags: Optional[list[str]] = None
-
-    @property
-    def d(self):
-        """Simple shorthand for self.__dict__"""
-        return self.__dict__
-
-    # def update_function_kwargs(self, bonus_function_kwargs: StringKeyDict):
-    #     """Update the config with bonus function kwargs."""
-    #     self.function_kwargs = recursive_dict_update(
-    #         self.function_kwargs, bonus_function_kwargs
-    #     )
-
-
-@dataclass
-class ProductExperimentSpec:
-    """Type definition for a ProductExperimentSpec."""
-
-    # Note that optional means that field can be None; but have no default values
-    # (no defaults needed because this will always be constructed by read_experiment_set)
-    repeats: int
-    config_axes: ConfigPathAxes
-    expt_root: Optional[ConfigInputMultiple]
-    expt_patch: Optional[ConfigInputMultiple]
-
-
-@dataclass
-class SweepExperimentSpec:
-    """Type definition for a SweepExperimentSpec."""
-
-    sweep_config: ConfigInput
-    base_config: Optional[ConfigInput]
-    sweep_count: Optional[int]
-
-
-@dataclass
-class SweepConfig:
-    """Type definition for a standalone Sweep Config."""
-    
-    method: str
-    parameters: dict
-    metric: Optional[dict] = None
-    base_config: Optional[ConfigInput] = None
-    base_config_paths: Optional[list[ConfigInput]] = None
-    sweep_count: Optional[int] = None
-    sweep_name: Optional[str] = None
-    project: Optional[str] = None
-    entity: Optional[str] = None
-
-
-ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
-
-
-@dataclass
-class MetaConfig:
-    """Type definition for a MetaConfig."""
-
-    experiments: list[ExperimentSpec]
-    folder: Optional[str]
-    common_root: Optional[ConfigInputMultiple]
-    common_patch: Optional[ConfigInputMultiple]
-    auto_increment_rng_seed: bool
-    rng_seed_offset: int
-    bonus_dict: Optional[StringKeyDict]
-
-    @property
-    def d(self):
-        """Simple shorthand for self.__dict__"""
-        return self.__dict__
 
 
 ### Functions
@@ -157,7 +77,7 @@ def detect_config_type(config_dict: StringKeyDict) -> str:
     
     # Try Config
     try:
-        Config(**config_dict)
+        _ = load_config(config_dict)
         return "single"
     except Exception:
         pass
@@ -199,9 +119,12 @@ def load_config_dict(config_path_or_dict: ConfigInput) -> StringKeyDict:
         raise TypeError(f"Expected str or dict, got {type(config_path_or_dict)}")
 
 
-def load_config(cfg_path: str) -> Config:
+def load_config(config_path_or_dict: ConfigInput) -> Config:
     """Loads a config from corresponding file path (including .yaml extension)."""
-    return Config(**load_dict_from_yaml(cfg_path))
+    config_dict = load_config_dict(config_path_or_dict)
+    if 'instance' in config_dict and isinstance(config_dict['instance'], dict):
+        config_dict['instance'] = InstanceConfig(**config_dict['instance'])
+    return Config(**config_dict)
 
 
 def load_and_compose_config_steps(
@@ -281,6 +204,13 @@ def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
         folder=mc_dict.get("folder", ""),
     )
 
+def remote_execute_from_config(
+    instance: InstanceConfig,
+    config: Config,
+):
+    """Execute a function on a remote instance."""
+    
+    execute_config_remotely(instance, config)
 
 def execute_from_config(
     config: Config,  # Entire config is separately input to easily log it to wandb
@@ -300,10 +230,16 @@ def execute_from_config(
     run_group_dummy: str = "RUN_GROUP",
     sweep_name: Optional[str] = None,
     sweep_name_dummy: str = "SWEEP_NAME",
+    instance: Optional[InstanceConfig] = None,
 ):
     """
     Executes a function from a Config object.
     """
+
+    if instance is not None:
+        config.instance = None
+        remote_execute_from_config(instance, config)
+        return
 
     name_base = name
     group = wandb_group if wandb_group is not None else name_base
@@ -589,7 +525,14 @@ def process_sweep_experiment_spec(
     # For now, we don't apply bonus_dict to sweeps
     
     return sweep_dict
-
+def remote_execute_sweep_from_dict(
+    instance: InstanceConfig,
+    function_map: FunctionMap,
+    sweep_dict: StringKeyDict,
+) -> None:
+    """Execute a wandb sweep on a remote instance."""
+    # TODO: Implement
+    pass
 
 def execute_sweep_from_dict(
     function_map: FunctionMap,
@@ -598,6 +541,11 @@ def execute_sweep_from_dict(
     """Execute a wandb sweep from sweep config dictionary."""
     
     # Extract custom fields
+    instance = sweep_dict.pop("instance", None)
+    if instance is not None:
+        sweep_dict["instance"] = None
+        remote_execute_sweep_from_dict(instance, function_map, sweep_dict)
+        return
     base_config_path = sweep_dict.pop("base_config", None)
     base_config_paths = sweep_dict.pop("base_config_paths", None)
     sweep_count = sweep_dict.pop("sweep_count", None)

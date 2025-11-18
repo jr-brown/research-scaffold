@@ -1,0 +1,25 @@
+name: "remote_experiment_env"
+function_name: "example_simple"
+time_stamp_name: true
+
+# Logging configuration
+log_file_path: "outputs/RUN_NAME/output.log"
+save_config_path: "outputs/RUN_NAME/config.yaml"
+
+function_kwargs:
+  param_a: "hello_from_remote_with_env"
+  param_b: 99
+  param_c: false
+
+# Remote execution using SKY_PATH environment variable
+# Set SKY_PATH env var before running: export SKY_PATH="example/sky_config.yaml"
+instance:
+  # sky_config is omitted - will use SKY_PATH environment variable
+  
+  # Optional: Still can patch the config
+  patch:
+    resources:
+      accelerators: "V100:1"
+  
+  commit_results: true
+
