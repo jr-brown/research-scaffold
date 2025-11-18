@@ -106,8 +106,22 @@ git config --global user.name "{git_user_name}"
 
 # Commit and push if there are changes
 if git commit -m "Results from {job_name}"; then
-    git push origin {current_branch}
-    echo "✅ Results committed and pushed to branch: {current_branch}"
+    # Try pushing to the current branch
+    if git push origin {current_branch}; then
+        echo "✅ Results committed and pushed to branch: {current_branch}"
+    else
+        # Push failed - create a new branch and push there as failsafe
+        echo "⚠️  Push to {current_branch} failed. Creating fallback branch..."
+        FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
+        git checkout -b "$FALLBACK_BRANCH"
+        if git push origin "$FALLBACK_BRANCH"; then
+            echo "✅ Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
+            echo "⚠️  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
+        else
+            echo "❌ Failed to push even to fallback branch. Results are committed locally but not pushed."
+            exit 1
+        fi
+    fi
 fi
 """)
     
