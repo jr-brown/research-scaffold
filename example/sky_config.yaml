@@ -20,8 +20,6 @@ envs:
   PYTHONPATH: /home/sky-user/sky_workdir
 
 setup: |
-  echo "=== Setting up research-scaffold environment ==="
-  
   # Set SKY_PATH for convenience
   export SKY_PATH=~/sky_workdir/example/sky_config.yaml
   
@@ -39,9 +37,6 @@ setup: |
   # Install useful utilities
   sudo apt-get update
   sudo apt-get install -y tmux htop
-  
-  echo "✅ Setup complete"
 
 run: |
-  echo "Instance ready. Experiment will run below..."
   # Experiment command is injected here by remote_execution.py
