@@ -1,0 +1,35 @@
+# Remote sweep execution example
+# Run with: python main.py -s sweeps/sweep_configs/remote_sweep.yaml
+# Make sure to set: export SKY_PATH="example/sky_config.yaml"
+
+base_config: "sweeps/meta_configs/remote_sweep_base.yaml"
+sweep_name: "remote_hp_search"
+project: "research-scaffold-demo"
+sweep_count: 3
+
+method: bayes
+metric:
+  name: performance_metric
+  goal: maximize
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.1
+  batch_size:
+    values: [16, 32, 64]
+
+# Remote execution configuration
+instance:
+  # sky_config is omitted - will use SKY_PATH environment variable
+  
+  # Optional: patch the sky config
+  patch:
+    resources:
+      accelerators: "V100:1"
+  
+  # Commit results after sweep completes
+  commit:
+    - "outputs/**"
+
