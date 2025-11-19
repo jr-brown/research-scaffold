@@ -50,7 +50,7 @@ from .util import (
 )
 from .file_io import load, save
 
-from .remote_execution import execute_config_remotely
+from .remote_execution import execute_config_remotely, execute_sweep_remotely
 
 
 log = get_logger(__name__)
@@ -510,14 +510,24 @@ def process_sweep_experiment_spec(
     # For now, we don't apply bonus_dict to sweeps
     
     return sweep_dict
+
+
 def remote_execute_sweep_from_dict(
     instance: InstanceConfig,
     function_map: FunctionMap,
     sweep_dict: StringKeyDict,
 ) -> None:
     """Execute a wandb sweep on a remote instance."""
-    # TODO: Implement
-    pass
+    
+    # Get sweep name for logging
+    sweep_name = sweep_dict.get("sweep_name", "wandb_sweep")
+    
+    # Execute the sweep remotely
+    execute_sweep_remotely(
+        instance_config=instance,
+        sweep_dict=sweep_dict,
+        sweep_name=sweep_name,
+    )
 
 def execute_sweep_from_dict(
     function_map: FunctionMap,
@@ -528,6 +538,9 @@ def execute_sweep_from_dict(
     # Extract custom fields
     instance = sweep_dict.pop("instance", None)
     if instance is not None:
+        # Convert instance dict to InstanceConfig object if needed
+        if isinstance(instance, dict):
+            instance = InstanceConfig(**instance)
         sweep_dict["instance"] = None
         remote_execute_sweep_from_dict(instance, function_map, sweep_dict)
         return
