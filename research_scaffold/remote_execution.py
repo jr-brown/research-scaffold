@@ -5,6 +5,7 @@ import base64
 import uuid
 import yaml
 import tempfile
+import time
 from typing import Optional
 
 import git
@@ -289,6 +290,9 @@ def launch_remote_job(
         log.info(f"   View logs:   sky logs {cluster_name}")
         log.info("   Check status: sky status")
         log.info("   Cluster will auto-terminate after job completes")
+        
+        log.info("   Waiting 5s before continuing...")
+        time.sleep(5)
         
         return cluster_name
         
