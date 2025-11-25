@@ -5,7 +5,6 @@ import base64
 import uuid
 import yaml
 import tempfile
-import time
 from typing import Optional
 
 import git
@@ -276,23 +275,28 @@ def launch_remote_job(
         cluster_name = f"c{uuid.uuid4().hex[:8]}"
         
         log.info(f"Cluster name: {cluster_name}")
-        log.info("Launching remote job (fire and forget)...")
+        log.info("Launching remote job...")
         
-        # Launch the task asynchronously (don't wait for completion)
-        sky.launch(
+        # Launch the task and wait for cluster to be provisioned
+        # (but don't wait for the job to complete)
+        request_id = sky.launch(
             task,
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
         )
         
+        # Wait for cluster provisioning to complete before continuing
+        # This prevents race conditions when launching multiple jobs
+        log.info("Waiting for cluster to be provisioned...")
+        job_id, handle = sky.get(request_id)
+        
         log.info("")
-        log.info(f"🚀 Job '{job_name}' launched on cluster: {cluster_name}")
+        log.info(f"🚀 Job '{job_name}' running on cluster: {cluster_name}")
+        if job_id:
+            log.info(f"   Job ID: {job_id}")
         log.info(f"   View logs:   sky logs {cluster_name}")
         log.info("   Check status: sky status")
         log.info("   Cluster will auto-terminate after job completes")
-        
-        log.info("   Waiting 10s before continuing...")
-        time.sleep(10)
         
         return cluster_name
         
