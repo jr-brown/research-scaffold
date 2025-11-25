@@ -1,0 +1,13 @@
+function_args: []
+function_kwargs:
+  param_a: hello_from_remote
+  param_b: 42
+  param_c: true
+function_name: example_simple
+log_file_path: outputs/remote_experiment_2025-11-25_10-45-00/output.log
+name: remote_experiment_2025-11-25_10-45-00
+save_config_path: outputs/remote_experiment_2025-11-25_10-45-00/config.yaml
+wandb_entity: null
+wandb_group: null
+wandb_project: null
+wandb_tags: null
