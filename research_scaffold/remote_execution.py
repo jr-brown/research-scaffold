@@ -291,8 +291,8 @@ def launch_remote_job(
         log.info("   Check status: sky status")
         log.info("   Cluster will auto-terminate after job completes")
         
-        log.info("   Waiting 5s before continuing...")
-        time.sleep(5)
+        log.info("   Waiting 10s before continuing...")
+        time.sleep(10)
         
         return cluster_name
         
