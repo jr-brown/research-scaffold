@@ -16,3 +16,5 @@ local/
 
 # Distribution / packaging
 build/
+
+.env*

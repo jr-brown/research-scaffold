@@ -69,8 +69,8 @@ def build_experiment_run_command(
     # Set git safe directory first (needed for any git commands)
     commands.append("git config --global --add safe.directory ~/sky_workdir")
     
-    # Convert git remote to SSH (workdir is synced by now)
-    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|https://github.com/|git@github.com:|')")
+    # Ensure git remote uses HTTPS (for token-based auth via ~/.git-credentials)
+    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|git@github.com:|https://github.com/|')")
     
     # Change to the working directory if needed
     if rel_cwd:
@@ -162,8 +162,8 @@ def build_sweep_run_command(
     # Set git safe directory first (needed for any git commands)
     commands.append("git config --global --add safe.directory ~/sky_workdir")
     
-    # Convert git remote to SSH (workdir is synced by now)
-    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|https://github.com/|git@github.com:|')")
+    # Ensure git remote uses HTTPS (for token-based auth via ~/.git-credentials)
+    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|git@github.com:|https://github.com/|')")
     
     # Change to the working directory if needed
     if rel_cwd:
@@ -248,33 +248,19 @@ def launch_remote_job(
             )
         log.info(f"Using SKY_PATH environment variable: {sky_config_path}")
     
-    # Ensure WANDB_API_KEY is available for environment variable expansion
-    if "WANDB_API_KEY" not in os.environ:
-        raise RuntimeError(
-            "WANDB_API_KEY not found in environment variables. "
-            "Please set the WANDB_API_KEY environment variable."
-        )
-    # Load the Sky configuration
+    original_cwd = os.getcwd()
+    
+    repo_root, _, _ = get_git_info()
+    os.chdir(repo_root)
+    
     log.info(f"Loading Sky config from: {sky_config_path}")
+    sky_config = load_config_dict(sky_config_path)
     
-    # Read the original file as text to preserve formatting
-    with open(sky_config_path, 'r') as f:
-        sky_config_text = f.read()
-    
-    # Expand environment variables in the YAML text (handles ${VAR} syntax)
-    sky_config_text = os.path.expandvars(sky_config_text)
-    
-    # Now parse the expanded text
-    sky_config = yaml.safe_load(sky_config_text)
-    
-    # Apply patch if provided
     if instance_config.patch:
         log.info("Applying Sky config patch")
         patch_dict = load_config_dict(instance_config.patch)
         sky_config = deep_update(sky_config, patch_dict)
     
-    # Get git information and override workdir to use repo root
-    repo_root, _, _ = get_git_info()
     sky_config['workdir'] = repo_root
     
     # Inject the run command into the Sky config
@@ -300,25 +286,49 @@ def launch_remote_job(
     cluster_name = f"c{uuid.uuid4().hex[:8]}"
     
     log.info(f"Cluster name: {cluster_name}")
-    log.info("Launching task...")
-    
-    # Launch the task
-    request_id = sky.launch(
-        task,
-        cluster_name=cluster_name,
-        down=True,  # Auto tear down after completion
-    )
-    
-    log.info(f"Launch request submitted. Request ID: {request_id}")
-    log.info(f"Job is running remotely on cluster: {cluster_name}")
+    log.info("Launching task and streaming logs...")
     log.info("")
-    log.info(f"To check status:  sky status {cluster_name}")
-    log.info(f"To view logs:     sky logs {cluster_name}")
-    log.info(f"To tear down:     sky down {cluster_name}")
-    log.info("")
-    log.info("Cluster will automatically tear down after completion (down=True)")
     
-    # Job is now running remotely - we can return immediately (fire and forget)
+    try:
+        # Launch the task (returns request_id)
+        request_id = sky.launch(
+            task,
+            cluster_name=cluster_name,
+            down=True,  # Auto tear down after completion
+        )
+        
+        # Get the job_id and handle from the launch result
+        job_id, handle = sky.get(request_id)
+        
+        if job_id is not None:
+            log.info(f"Job ID: {job_id}")
+            log.info("Streaming job logs...")
+            log.info("")
+            
+            # Stream the job logs (this will block until job completes)
+            exit_code = sky.tail_logs(
+                cluster_name=cluster_name,
+                job_id=job_id,
+                follow=True
+            )
+            
+            log.info("")
+            if exit_code == 0:
+                log.info("✅ Remote job completed successfully")
+            else:
+                log.error(f"❌ Remote job failed with exit code: {exit_code}")
+                raise RuntimeError(f"Job failed with exit code {exit_code}")
+        else:
+            log.info("No job was submitted (dry run or setup-only task)")
+        
+        log.info(f"Cluster {cluster_name} will be automatically torn down")
+        
+    except Exception as e:
+        log.error(f"❌ Remote execution failed: {e}")
+        log.info(f"Cluster {cluster_name} will be automatically torn down")
+        raise
+    finally:
+        os.chdir(original_cwd)
 
 
 def execute_config_remotely(
