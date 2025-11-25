@@ -41,7 +41,6 @@ def build_experiment_run_command(
     commit_paths: Optional[list[str]],
     git_user_name: str,
     git_user_email: str,
-    repo_url: str,
 ) -> str:
     """Build the run command that executes the actual experiment.
     
@@ -55,7 +54,6 @@ def build_experiment_run_command(
         commit_paths: List of paths/patterns to commit (e.g., ["outputs/**", "logs/**"])
         git_user_name: Git user name for commits
         git_user_email: Git user email for commits
-        repo_url: Git repository URL
         
     Returns:
         Shell command string to execute the experiment
@@ -65,12 +63,6 @@ def build_experiment_run_command(
     config_b64 = base64.b64encode(config_json.encode()).decode()
     
     commands = []
-    
-    # Set git safe directory first (needed for any git commands)
-    commands.append("git config --global --add safe.directory ~/sky_workdir")
-    
-    # Ensure git remote uses HTTPS (for token-based auth via ~/.git-credentials)
-    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|git@github.com:|https://github.com/|')")
     
     # Change to the working directory if needed
     if rel_cwd:
@@ -136,7 +128,6 @@ def build_sweep_run_command(
     commit_paths: Optional[list[str]],
     git_user_name: str,
     git_user_email: str,
-    repo_url: str,
 ) -> str:
     """Build the run command that executes a wandb sweep remotely.
     
@@ -148,7 +139,6 @@ def build_sweep_run_command(
         commit_paths: List of paths/patterns to commit (e.g., ["outputs/**", "logs/**"])
         git_user_name: Git user name for commits
         git_user_email: Git user email for commits
-        repo_url: Git repository URL
         
     Returns:
         Shell command string to execute the sweep
@@ -158,12 +148,6 @@ def build_sweep_run_command(
     sweep_b64 = base64.b64encode(sweep_json.encode()).decode()
     
     commands = []
-    
-    # Set git safe directory first (needed for any git commands)
-    commands.append("git config --global --add safe.directory ~/sky_workdir")
-    
-    # Ensure git remote uses HTTPS (for token-based auth via ~/.git-credentials)
-    commands.append("git remote set-url origin $(git config --get remote.origin.url | sed 's|git@github.com:|https://github.com/|')")
     
     # Change to the working directory if needed
     if rel_cwd:
@@ -224,15 +208,20 @@ def launch_remote_job(
     instance_config: InstanceConfig,
     job_name: str,
     run_command: str,
-) -> None:
-    """Launch a remote job using SkyPilot.
+) -> str:
+    """Launch a remote job using SkyPilot (fire and forget).
     
-    This is the common logic for launching any type of remote job (config or sweep).
+    This launches the job asynchronously and returns immediately without
+    waiting for the job to complete. Use `sky status` or `sky queue` to
+    check job status, and `sky logs <cluster_name>` to view logs.
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         job_name: Name of the job for logging
         run_command: The command to run remotely
+        
+    Returns:
+        The cluster name for later reference (e.g., to check status or view logs)
         
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
@@ -250,83 +239,59 @@ def launch_remote_job(
     
     original_cwd = os.getcwd()
     
-    repo_root, _, _ = get_git_info()
-    os.chdir(repo_root)
-    
-    log.info(f"Loading Sky config from: {sky_config_path}")
-    sky_config = load_config_dict(sky_config_path)
-    
-    if instance_config.patch:
-        log.info("Applying Sky config patch")
-        patch_dict = load_config_dict(instance_config.patch)
-        sky_config = deep_update(sky_config, patch_dict)
-    
-    sky_config['workdir'] = repo_root
-    
-    # Inject the run command into the Sky config
-    original_run = sky_config.get('run', '')
-    if original_run and not original_run.endswith('\n'):
-        original_run += '\n'
-    
-    sky_config['run'] = original_run + run_command
-    
-    # Create SkyPilot task from the config
-    log.info("Creating SkyPilot task")
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump(sky_config, f)
-        temp_config_path = f.name
-    
     try:
-        task = sky.Task.from_yaml(temp_config_path)
-    finally:
-        # Clean up the temp file
-        os.unlink(temp_config_path)
-    
-    # Generate cluster name
-    cluster_name = f"c{uuid.uuid4().hex[:8]}"
-    
-    log.info(f"Cluster name: {cluster_name}")
-    log.info("Launching task and streaming logs...")
-    log.info("")
-    
-    try:
-        # Launch the task (returns request_id)
-        request_id = sky.launch(
+        repo_root, _, _ = get_git_info()
+        os.chdir(repo_root)
+        
+        log.info(f"Loading Sky config from: {sky_config_path}")
+        sky_config = load_config_dict(sky_config_path)
+        
+        if instance_config.patch:
+            log.info("Applying Sky config patch")
+            patch_dict = load_config_dict(instance_config.patch)
+            sky_config = deep_update(sky_config, patch_dict)
+        
+        sky_config['workdir'] = repo_root
+        
+        # Inject the run command into the Sky config
+        original_run = sky_config.get('run', '')
+        if original_run and not original_run.endswith('\n'):
+            original_run += '\n'
+        
+        sky_config['run'] = original_run + run_command
+        
+        # Create SkyPilot task from the config
+        log.info("Creating SkyPilot task")
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            yaml.dump(sky_config, f)
+            temp_config_path = f.name
+        
+        try:
+            task = sky.Task.from_yaml(temp_config_path)
+        finally:
+            os.unlink(temp_config_path)
+        
+        # Generate cluster name
+        cluster_name = f"c{uuid.uuid4().hex[:8]}"
+        
+        log.info(f"Cluster name: {cluster_name}")
+        log.info("Launching remote job (fire and forget)...")
+        
+        # Launch the task asynchronously (don't wait for completion)
+        sky.launch(
             task,
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
         )
         
-        # Get the job_id and handle from the launch result
-        job_id, handle = sky.get(request_id)
+        log.info("")
+        log.info(f"🚀 Job '{job_name}' launched on cluster: {cluster_name}")
+        log.info(f"   View logs:   sky logs {cluster_name}")
+        log.info("   Check status: sky status")
+        log.info("   Cluster will auto-terminate after job completes")
         
-        if job_id is not None:
-            log.info(f"Job ID: {job_id}")
-            log.info("Streaming job logs...")
-            log.info("")
-            
-            # Stream the job logs (this will block until job completes)
-            exit_code = sky.tail_logs(
-                cluster_name=cluster_name,
-                job_id=job_id,
-                follow=True
-            )
-            
-            log.info("")
-            if exit_code == 0:
-                log.info("✅ Remote job completed successfully")
-            else:
-                log.error(f"❌ Remote job failed with exit code: {exit_code}")
-                raise RuntimeError(f"Job failed with exit code {exit_code}")
-        else:
-            log.info("No job was submitted (dry run or setup-only task)")
+        return cluster_name
         
-        log.info(f"Cluster {cluster_name} will be automatically torn down")
-        
-    except Exception as e:
-        log.error(f"❌ Remote execution failed: {e}")
-        log.info(f"Cluster {cluster_name} will be automatically torn down")
-        raise
     finally:
         os.chdir(original_cwd)
 
@@ -334,12 +299,15 @@ def launch_remote_job(
 def execute_config_remotely(
     instance_config: InstanceConfig,
     config: Config,
-) -> None:
-    """Execute a config remotely using SkyPilot.
+) -> str:
+    """Execute a config remotely using SkyPilot (fire and forget).
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         config: Experiment configuration to execute
+        
+    Returns:
+        The cluster name for later reference
         
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
@@ -347,7 +315,7 @@ def execute_config_remotely(
     log.info(f"Launching remote execution for config: {config.name}")
     
     # Get git information
-    repo_root, current_branch, repo_url = get_git_info()
+    repo_root, current_branch, _ = get_git_info()
     original_cwd = os.getcwd()
     rel_cwd = os.path.relpath(original_cwd, repo_root)
     if rel_cwd == ".":
@@ -378,11 +346,10 @@ def execute_config_remotely(
         commit_paths=instance_config.commit,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
-        repo_url=repo_url,
     )
     
-    # Launch the remote job
-    launch_remote_job(
+    # Launch the remote job and return cluster name
+    return launch_remote_job(
         instance_config=instance_config,
         job_name=config.name,
         run_command=experiment_run_cmd,
@@ -393,13 +360,16 @@ def execute_sweep_remotely(
     instance_config: InstanceConfig,
     sweep_dict: dict,
     sweep_name: str,
-) -> None:
-    """Execute a wandb sweep remotely using SkyPilot.
+) -> str:
+    """Execute a wandb sweep remotely using SkyPilot (fire and forget).
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         sweep_dict: Sweep configuration dictionary
         sweep_name: Name of the sweep for logging
+        
+    Returns:
+        The cluster name for later reference
         
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
@@ -407,7 +377,7 @@ def execute_sweep_remotely(
     log.info(f"Launching remote execution for sweep: {sweep_name}")
     
     # Get git information
-    repo_root, current_branch, repo_url = get_git_info()
+    repo_root, current_branch, _ = get_git_info()
     original_cwd = os.getcwd()
     rel_cwd = os.path.relpath(original_cwd, repo_root)
     if rel_cwd == ".":
@@ -434,11 +404,10 @@ def execute_sweep_remotely(
         commit_paths=instance_config.commit,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
-        repo_url=repo_url,
     )
     
-    # Launch the remote job
-    launch_remote_job(
+    # Launch the remote job and return cluster name
+    return launch_remote_job(
         instance_config=instance_config,
         job_name=sweep_name,
         run_command=sweep_run_cmd,

@@ -46,7 +46,6 @@ from .util import (
     recursive_dict_update,
     check_name_sub_general,
     load_config_dict,
-    deep_update,
 )
 from .file_io import load, save
 
@@ -72,7 +71,7 @@ def detect_config_type(config_dict: StringKeyDict) -> str:
     
     # Try SweepConfig  
     try:
-        SweepConfig(**config_dict)
+        load_sweep_config(config_dict)
         return "sweep"
     except Exception:
         pass
@@ -188,6 +187,15 @@ def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
         rng_seed_offset=mc_dict.get("rng_seed_offset", 0),
         folder=mc_dict.get("folder", ""),
     )
+
+
+def load_sweep_config(sweep_cfg_path: ConfigInput) -> SweepConfig:
+    """Loads a sweep config from path or inline dict (including .yaml extension if path)."""
+    sc_dict = load_config_dict(sweep_cfg_path)
+    if 'instance' in sc_dict and isinstance(sc_dict['instance'], dict):
+        sc_dict['instance'] = InstanceConfig(**sc_dict['instance'])
+    return SweepConfig(**sc_dict)
+
 
 def remote_execute_from_config(
     instance: InstanceConfig,
