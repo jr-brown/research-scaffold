@@ -1,0 +1,22 @@
+INFO:research_scaffold.config_tools:========== Config Dict ===========
+Config(name='remote_experiment',
+       function_name='example_simple',
+       time_stamp_name=True,
+       function_kwargs={'param_a': 'hello_from_remote',
+                        'param_b': 42,
+                        'param_c': True},
+       function_args=None,
+       log_file_path='outputs/RUN_NAME/output.log',
+       save_config_path='outputs/RUN_NAME/config.yaml',
+       wandb_project=None,
+       wandb_entity=None,
+       wandb_group=None,
+       wandb_tags=None,
+       instance=None)
+INFO:research_scaffold.config_tools:Run Name: 'remote_experiment_2025-11-25_10-33-35'
+INFO:research_scaffold.config_tools:Saved config to: outputs/remote_experiment_2025-11-25_10-33-35/config.yaml
+INFO:functions.examples:Running example_simple
+INFO:functions.examples:  param_a: hello_from_remote
+INFO:functions.examples:  param_b: 42
+INFO:functions.examples:  param_c: True
+INFO:functions.examples:  result: 84
