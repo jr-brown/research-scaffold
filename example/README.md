@@ -16,7 +16,12 @@
 - **Nested parameters** → `python main.py -s sweeps/sweep_configs/nested_sweep.yaml`
 - **With composition** → `python main.py -m sweeps/meta_configs/sweep_with_composition.yaml`
 - **Multiple sweeps** → `python main.py -m sweeps/meta_configs/multi_sweep.yaml`
-- **Seep with logging** → `python main.py -s sweeps/sweep_configs/sweep_with_logging.yaml`
+- **Sweep with logging** → `python main.py -s sweeps/sweep_configs/sweep_with_logging.yaml`
+
+### Remote Execution
+Set `export SKY_PATH="example/sky_config.yaml"` before running:
+- **Remote config** → `python main.py -c basic/with_remote_env.yaml`
+- **Remote sweep** → `python main.py -s sweeps/sweep_configs/remote_sweep.yaml`
 
 ## CLI Options
 

@@ -4,9 +4,10 @@ Generic Utility Functions
 
 from re import search, subn
 from copy import deepcopy
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Any
 from collections.abc import Callable
 from datetime import datetime
+import yaml
 
 try:
     from accelerate import PartialState
@@ -152,3 +153,42 @@ def merge_dicts(*args: dict) -> dict:
     for arg in args:
         _dict.update(arg)
     return _dict
+
+
+def load_config_dict(config_path_or_dict: dict | str) -> dict[str, Any]:
+    """Load config dict from path or return dict if already a dict.
+    
+    This is the canonical way to handle ConfigInput types throughout the codebase.
+    
+    Args:
+        config_path_or_dict: Either a file path string or an inline config dict
+        
+    Returns:
+        Dictionary with config data
+    """
+    if isinstance(config_path_or_dict, dict):
+        return config_path_or_dict
+    elif isinstance(config_path_or_dict, str):
+        with open(config_path_or_dict, 'r') as f:
+            return yaml.safe_load(f)
+    else:
+        raise TypeError(f"Expected str or dict, got {type(config_path_or_dict)}")
+
+
+def deep_update(base_dict: dict, update_dict: dict) -> dict:
+    """Deep merge update_dict into base_dict.
+    
+    Args:
+        base_dict: Base dictionary
+        update_dict: Dictionary with updates to merge
+        
+    Returns:
+        Merged dictionary
+    """
+    result = base_dict.copy()
+    for key, value in update_dict.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_update(result[key], value)
+        else:
+            result[key] = value
+    return result

@@ -1,0 +1,57 @@
+name: research-gpu
+
+resources:
+  infra: vast
+  accelerators: V100:1
+  disk_size: 100
+
+workdir: .
+
+file_mounts:
+  ~/sky_workdir/.env: .env
+  ~/sky_workdir/.envrc: .envrc
+
+envs:
+  PYTHONPATH: /home/sky-user/sky_workdir
+  SKY_PATH: example/sky_config.yaml
+
+setup: |
+  # Load environment variables
+  set -a
+  source ~/sky_workdir/.env
+  set +a
+  
+  # Setup git from scratch (no mounted .gitconfig)
+  git config --global user.name "Remote Runner"
+  git config --global user.email "remote@runner.local"
+  git config --global credential.helper store
+  echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+  
+  # Fix git ownership and convert SSH remote to HTTPS
+  cd ~/sky_workdir
+  git config --global --add safe.directory ~/sky_workdir
+  git remote set-url origin $(git remote get-url origin | sed 's|git@github.com:|https://github.com/|')
+  
+  # Install dependencies and the research-scaffold package
+  python3 -m pip install -r requirements.txt
+  python3 -m pip install -e .
+  
+  # Install useful utilities
+  sudo apt-get update
+  sudo apt-get install -y tmux htop direnv
+  
+  # Setup direnv
+  echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+  eval "$(direnv hook bash)"
+  cd ~/sky_workdir && direnv allow
+  
+  echo "✅ Setup complete"
+
+run: |
+  # Load environment variables
+  set -a
+  source ~/sky_workdir/.env
+  set +a
+  echo "✅ Environment loaded"
+  
+  # Experiment command is injected here by remote_execution.py

@@ -1,6 +1,5 @@
 local/
 **/*.aux
-**/*.log
 **/*.out
 **/*.pdf
 **/*.bbl
@@ -17,3 +16,5 @@ local/
 
 # Distribution / packaging
 build/
+
+.env*

@@ -1,0 +1,9 @@
+# Meta-config for remote sweep base
+# Composes sweep_base.yaml with inline patch to override output directory
+
+experiments:
+  - config: "sweeps/configs/sweep_base.yaml"
+    expt_patch:
+      function_kwargs:
+        output_dir: "outputs/SWEEP_NAME/RUN_NAME"
+
