@@ -129,6 +129,8 @@ def load_and_compose_config_steps(
         config_dict, bonus_dict, compositions=compositions
     )
 
+    if 'instance' in config_dict and isinstance(config_dict['instance'], dict):
+        config_dict['instance'] = InstanceConfig(**config_dict['instance'])
     return Config(**config_dict)
 
 
