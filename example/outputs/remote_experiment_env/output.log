@@ -1,0 +1,2 @@
+[33mTailing logs of the last job on cluster 'ce4eb5c20'...[0m
+sky.exceptions.ClusterNotUpError: [33mTailing logs: skipped for cluster 'ce4eb5c20' (status: INIT). It is only allowed for UP clusters.[0m Wait for a launch to finish, or use this command to try to transition the cluster to UP: [1msky start ce4eb5c20[0m[0m
