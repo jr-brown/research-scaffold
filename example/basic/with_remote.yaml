@@ -2,7 +2,10 @@ name: "remote_experiment"
 function_name: "example_simple"
 time_stamp_name: true
 
-# Logging configuration - logs will be saved to file and pushed to git
+# Local logging configuration:
+# - log_file_path: Logs from the remote job are streamed back to this LOCAL path
+# - save_config_path: Config is saved to this LOCAL path before launching
+# Both paths support RUN_NAME placeholder which is replaced with the experiment name
 log_file_path: "outputs/RUN_NAME/output.log"
 save_config_path: "outputs/RUN_NAME/config.yaml"
 
@@ -13,6 +16,11 @@ function_kwargs:
 
 # Remote execution configuration
 instance:
+  # Optional: Custom cluster name. If provided and a cluster with this name
+  # already exists, the launch will be skipped (useful for persistent instances).
+  # If not provided, a unique name like "c1a2b3c4" is auto-generated.
+  name: "my-gpu-instance"
+  
   # Path to SkyPilot YAML config (relative to repo root or absolute)
   # If not specified, uses SKY_PATH environment variable
   sky_config: "example/sky_config.yaml"
@@ -23,6 +31,7 @@ instance:
     resources:
       accelerators: "V100:1"  # Override to use V100 instead of what's in sky_config
   
-  # Specify paths to commit after experiment completes
-  commit:
-    - "outputs/**"
+  # Optional: Specify paths to commit and push from remote after experiment completes
+  # (useful if you want results saved in git in addition to local streaming)
+  # commit:
+  #   - "outputs/**"
