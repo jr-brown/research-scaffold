@@ -1,0 +1,12 @@
+function_args: null
+function_kwargs:
+  param_a: hello_from_remote_with_env
+  param_b: 99
+  param_c: false
+function_name: example_simple
+name: remote_experiment_env
+time_stamp_name: true
+wandb_entity: null
+wandb_group: null
+wandb_project: null
+wandb_tags: null
