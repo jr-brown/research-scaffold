@@ -5,7 +5,6 @@ import base64
 import uuid
 import yaml
 import tempfile
-import time
 import subprocess
 from typing import Optional
 
@@ -399,8 +398,11 @@ def launch_remote_job(
         log.info(f"   Cluster: {cluster_name}")
         log.info("   Cluster will auto-terminate after job completes")
         
-        log.info("   Waiting 10s before continuing...")
-        time.sleep(10)
+        # Wait for cluster to be fully provisioned before returning
+        # This prevents double-booking GPUs when launching multiple jobs
+        log.info("   Waiting for cluster to be UP...")
+        sky.get(request_id)  # Blocks until cluster is UP and job is submitted
+        log.info("   ✅ Cluster is UP, job submitted")
         
         return cluster_name, str(request_id), False  # Newly launched
         
@@ -458,6 +460,10 @@ def execute_config_remotely(
     
     if local_save_config_path:
         save_config_locally(config_dict, local_save_config_path, config.name)
+    
+    # Replace RUN_NAME in instance name if present
+    if instance_config.name:
+        instance_config.name = instance_config.name.replace("RUN_NAME", config.name)
     
     # Build the experiment run command (config sent to remote has no log/save paths)
     experiment_run_cmd = build_experiment_run_command(
@@ -534,6 +540,10 @@ def execute_sweep_remotely(
     # Save sweep config locally (before launching remote job)
     if save_config_path:
         save_config_locally(sweep_dict, save_config_path, sweep_name)
+    
+    # Replace RUN_NAME in instance name if present
+    if instance_config.name:
+        instance_config.name = instance_config.name.replace("RUN_NAME", sweep_name)
     
     # Build the sweep run command
     sweep_run_cmd = build_sweep_run_command(

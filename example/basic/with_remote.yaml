@@ -19,6 +19,7 @@ instance:
   # Optional: Custom cluster name. If provided and a cluster with this name
   # already exists, the launch will be skipped (useful for persistent instances).
   # If not provided, a unique name like "c1a2b3c4" is auto-generated.
+  # Supports RUN_NAME placeholder which is replaced with the config name.
   name: "my-gpu-instance"
   
   # Path to SkyPilot YAML config (relative to repo root or absolute)
