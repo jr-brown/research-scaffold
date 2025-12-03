@@ -5,7 +5,7 @@ import base64
 import uuid
 import yaml
 import tempfile
-import time
+import subprocess
 from typing import Optional
 
 import git
@@ -15,6 +15,77 @@ from .types import Config, InstanceConfig
 from .util import get_logger, load_config_dict, deep_update
 
 log = get_logger(__name__)
+
+
+def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) -> subprocess.Popen:
+    """Stream logs from a SkyPilot job to a local file using the SDK.
+    
+    Chains two SDK calls:
+    1. sky.stream_and_get() - streams launch logs (provisioning, setup)
+    2. sky.tail_logs() - streams actual job output
+    
+    Args:
+        request_id: The request ID from sky.launch()
+        cluster_name: The cluster name for tailing job logs
+        log_file_path: Local path to write logs to
+        
+    Returns:
+        The background process
+    """
+    log_dir = os.path.dirname(log_file_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    
+    log.info(f"📝 Streaming logs to: {log_file_path}")
+    
+    # Stream launch logs, then tail job logs
+    script = f'''
+import sky
+with open("{log_file_path}", "w") as f:
+    # Stream launch logs (provisioning, setup, job submission)
+    sky.stream_and_get("{request_id}", output_stream=f)
+    f.write("\\n--- Job output ---\\n")
+    f.flush()
+    # Stream actual job logs
+    sky.tail_logs("{cluster_name}", job_id=None, follow=True, output_stream=f)
+'''
+    
+    process = subprocess.Popen(
+        ['python3', '-c', script],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    
+    log.info(f"   Monitor: tail -f {log_file_path}")
+    return process
+
+
+def save_config_locally(config_dict: dict, save_path: str, run_name: str) -> str:
+    """Save config to a local file.
+    
+    Args:
+        config_dict: The config dictionary to save
+        save_path: Path template (may contain RUN_NAME placeholder)
+        run_name: Name to substitute for RUN_NAME
+        
+    Returns:
+        The actual path where config was saved
+    """
+    # Replace RUN_NAME placeholder
+    actual_path = save_path.replace("RUN_NAME", run_name)
+    
+    # Ensure directory exists
+    config_dir = os.path.dirname(actual_path)
+    if config_dir:
+        os.makedirs(config_dir, exist_ok=True)
+    
+    # Save as YAML
+    with open(actual_path, 'w') as f:
+        yaml.dump(config_dict, f, default_flow_style=False)
+    
+    log.info(f"💾 Config saved locally: {actual_path}")
+    return actual_path
 
 
 def get_git_info() -> tuple[str, str, str]:
@@ -205,16 +276,37 @@ fi
     return "\n".join(commands)
 
 
+def get_existing_cluster(cluster_name: str) -> Optional[dict]:
+    """Check if a cluster with the given name already exists.
+    
+    Args:
+        cluster_name: Name of the cluster to check
+        
+    Returns:
+        Cluster record dict if exists, None otherwise
+    """
+    try:
+        clusters = sky.status()
+        for cluster in clusters:
+            if cluster.get('name') == cluster_name:
+                return cluster
+    except Exception as e:
+        log.warning(f"Failed to check cluster status: {e}")
+    return None
+
+
 def launch_remote_job(
     instance_config: InstanceConfig,
     job_name: str,
     run_command: str,
-) -> str:
+) -> tuple[str, Optional[str], bool]:
     """Launch a remote job using SkyPilot (fire and forget).
     
     This launches the job asynchronously and returns immediately without
-    waiting for the job to complete. Use `sky status` or `sky queue` to
-    check job status, and `sky logs <cluster_name>` to view logs.
+    waiting for the job to complete.
+    
+    If instance_config.name is provided and a cluster with that name already
+    exists, the function will skip launching and return the existing cluster name.
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
@@ -222,11 +314,31 @@ def launch_remote_job(
         run_command: The command to run remotely
         
     Returns:
-        The cluster name for later reference (e.g., to check status or view logs)
+        Tuple of (cluster_name, request_id, was_already_running):
+        - cluster_name: The cluster name for later reference
+        - request_id: The SkyPilot request ID (for log streaming), None if already running
+        - was_already_running: True if cluster already existed (no new job launched)
         
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
     """
+    # Determine cluster name: use custom name or generate one
+    if instance_config.name:
+        cluster_name = instance_config.name
+        
+        # Check if cluster with this name already exists
+        existing = get_existing_cluster(cluster_name)
+        if existing:
+            status = existing.get('status', 'unknown')
+            log.info("")
+            log.info(f"⏭️  Instance '{cluster_name}' is already running (status: {status})")
+            log.info(f"   View logs:   sky logs {cluster_name}")
+            log.info("   Check status: sky status")
+            log.info("   Skipping launch, continuing without spinning up new instance.")
+            return cluster_name, None, True  # Already running
+    else:
+        cluster_name = f"c{uuid.uuid4().hex[:8]}"
+    
     # Determine sky config path: use instance_config.sky_config or fall back to SKY_PATH env var
     sky_config_path = instance_config.sky_config
     if sky_config_path is None:
@@ -272,29 +384,21 @@ def launch_remote_job(
         finally:
             os.unlink(temp_config_path)
         
-        # Generate cluster name
-        cluster_name = f"c{uuid.uuid4().hex[:8]}"
-        
         log.info(f"Cluster name: {cluster_name}")
-        log.info("Launching remote job (fire and forget)...")
+        log.info("Launching remote job...")
         
-        # Launch the task asynchronously (don't wait for completion)
-        sky.launch(
+        # Launch the task - returns a request_id for async tracking
+        request_id = sky.launch(
             task,
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
         )
         
-        log.info("")
-        log.info(f"🚀 Job '{job_name}' launched on cluster: {cluster_name}")
-        log.info(f"   View logs:   sky logs {cluster_name}")
-        log.info("   Check status: sky status")
+        log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
+        log.info(f"   Cluster: {cluster_name}")
         log.info("   Cluster will auto-terminate after job completes")
         
-        log.info("   Waiting 10s before continuing...")
-        time.sleep(10)
-        
-        return cluster_name
+        return cluster_name, str(request_id), False  # Newly launched
         
     finally:
         os.chdir(original_cwd)
@@ -305,6 +409,9 @@ def execute_config_remotely(
     config: Config,
 ) -> str:
     """Execute a config remotely using SkyPilot (fire and forget).
+    
+    Config is saved locally (if save_config_path is set) and logs are streamed
+    back to the local machine (if log_file_path is set).
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
@@ -341,7 +448,14 @@ def execute_config_remotely(
     config_dict = config.d.copy()
     config_dict.pop('instance', None)
     
-    # Build the experiment run command
+    # Save config locally (before launching remote job)
+    local_log_file_path = config_dict.pop('log_file_path', None)
+    local_save_config_path = config_dict.pop('save_config_path', None)
+    
+    if local_save_config_path:
+        save_config_locally(config_dict, local_save_config_path, config.name)
+    
+    # Build the experiment run command (config sent to remote has no log/save paths)
     experiment_run_cmd = build_experiment_run_command(
         config_dict=config_dict,
         rel_cwd=rel_cwd,
@@ -352,25 +466,39 @@ def execute_config_remotely(
         git_user_email=git_user_email,
     )
     
-    # Launch the remote job and return cluster name
-    return launch_remote_job(
+    # Launch the remote job
+    cluster_name, request_id, was_already_running = launch_remote_job(
         instance_config=instance_config,
         job_name=config.name,
         run_command=experiment_run_cmd,
     )
+    
+    # Start streaming logs to local file (if configured and job was actually launched)
+    if local_log_file_path and request_id and not was_already_running:
+        actual_log_path = local_log_file_path.replace("RUN_NAME", config.name)
+        start_log_streaming(request_id, cluster_name, actual_log_path)
+    
+    return cluster_name
 
 
 def execute_sweep_remotely(
     instance_config: InstanceConfig,
     sweep_dict: dict,
     sweep_name: str,
+    log_file_path: Optional[str] = None,
+    save_config_path: Optional[str] = None,
 ) -> str:
     """Execute a wandb sweep remotely using SkyPilot (fire and forget).
+    
+    Sweep config is saved locally (if save_config_path is set) and logs are 
+    streamed back to the local machine (if log_file_path is set).
     
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         sweep_dict: Sweep configuration dictionary
         sweep_name: Name of the sweep for logging
+        log_file_path: Optional local path to stream logs to (may contain RUN_NAME)
+        save_config_path: Optional local path to save sweep config (may contain RUN_NAME)
         
     Returns:
         The cluster name for later reference
@@ -399,6 +527,10 @@ def execute_sweep_remotely(
         git_user_email = "remote-execution@research-scaffold"
         log.warning(f"Local git user not configured, using fallback: {git_user_name} <{git_user_email}>")
     
+    # Save sweep config locally (before launching remote job)
+    if save_config_path:
+        save_config_locally(sweep_dict, save_config_path, sweep_name)
+    
     # Build the sweep run command
     sweep_run_cmd = build_sweep_run_command(
         sweep_dict=sweep_dict,
@@ -410,9 +542,16 @@ def execute_sweep_remotely(
         git_user_email=git_user_email,
     )
     
-    # Launch the remote job and return cluster name
-    return launch_remote_job(
+    # Launch the remote job
+    cluster_name, request_id, was_already_running = launch_remote_job(
         instance_config=instance_config,
         job_name=sweep_name,
         run_command=sweep_run_cmd,
     )
+    
+    # Start streaming logs to local file (if configured and job was actually launched)
+    if log_file_path and request_id and not was_already_running:
+        actual_log_path = log_file_path.replace("RUN_NAME", sweep_name)
+        start_log_streaming(request_id, cluster_name, actual_log_path)
+    
+    return cluster_name

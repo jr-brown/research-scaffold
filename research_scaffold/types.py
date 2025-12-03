@@ -22,6 +22,7 @@ class InstanceConfig:
     sky_config: Optional[str] = None  # Path to SkyPilot YAML config file (or use SKY_PATH env var)
     patch: Optional[Union[StringKeyDict, str]] = None  # Inline dict or path to patch YAML
     commit: Optional[list[str]] = None  # List of paths/patterns to commit and push (e.g., ["outputs/**", "logs/**"])
+    name: Optional[str] = None  # Custom cluster name (if not provided, auto-generates a uuid-based name)
 
 
 @dataclass
