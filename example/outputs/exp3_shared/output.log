@@ -1,0 +1,17 @@
+[2mThe cluster will be torn down after 1 minutes of idleness (after all jobs finish).[0m
+[0m⚙︎ Launching on Vast The Netherlands, NL, EU[0m.
+[2m└── [0m[2mInstance is up.[0m
+[0m[32m✓ Cluster launched: test-shared-gpu.[0m[0m  [2mView logs: [1msky logs --provision test-shared-gpu[0m[0m
+[0m⚙︎ Syncing files.
+  [2mSyncing workdir (to 1 node): /Users/julianschulz/Projects/cloned_repos/research-scaffold -> ~/sky_workdir[0m
+[0m[32m✓ Synced workdir.[0m[0m  [2mView logs: sky api logs -l sky-2025-12-03-15-29-35-527148/workdir_sync.log[0m
+  [2mSyncing (to 1 node): /Users/julianschulz/Projects/cloned_repos/research-scaffold/.env -> ~/sky_workdir/.env[0m
+  [2mSyncing (to 1 node): /Users/julianschulz/Projects/cloned_repos/research-scaffold/.envrc -> ~/sky_workdir/.envrc[0m
+[0m[32m✓ Synced file_mounts.[0m[0m  [2mView logs: sky api logs -l sky-2025-12-03-15-29-35-527148/file_mounts.log[0m
+[0m[32m✓ Setup detached.[0m[0m
+[0m⚙︎ Job submitted, ID: 2
+
+--- Job output ---
+Job ID not provided. Streaming the logs of the latest job.
+[2m├── [0m[2mWaiting for task resources on 1 node.[0m
+'sky.logs' request 6405c913-27a4-4362-9af1-575dffd0165e cancelled

@@ -2,11 +2,29 @@
 
 import logging
 import random
+import time
 from typing import Optional
 from pathlib import Path
 import wandb
 
 log = logging.getLogger(__name__)
+
+
+def example_sleep(
+    sleep_seconds: int = 300,
+    message: str = "Sleeping...",
+) -> None:
+    """Simple function that sleeps for a given time. Useful for testing remote execution."""
+    
+    log.info(f"Starting sleep: {message}")
+    log.info(f"  sleep_seconds: {sleep_seconds}")
+    
+    for i in range(sleep_seconds):
+        if i % 60 == 0:
+            log.info(f"  {i}/{sleep_seconds} seconds elapsed...")
+        time.sleep(1)
+    
+    log.info(f"Sleep complete: {message}")
 
 
 def example_simple(

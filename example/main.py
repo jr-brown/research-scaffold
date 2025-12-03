@@ -29,6 +29,7 @@ from functions.examples import (
     example_with_logging,
     example_composition,
     example_sweep,
+    example_sleep,
 )
 
 from research_scaffold import execute_experiments
@@ -41,6 +42,7 @@ function_map = {
     "example_with_logging": example_with_logging,
     "example_composition": example_composition,
     "example_sweep": example_sweep,
+    "example_sleep": example_sleep,
 }
 
 if __name__ == "__main__":

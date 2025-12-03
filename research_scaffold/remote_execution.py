@@ -6,7 +6,7 @@ import uuid
 import yaml
 import tempfile
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 import git
 import sky
@@ -32,6 +32,8 @@ def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) 
     Returns:
         The background process
     """
+    import sys
+    
     log_dir = os.path.dirname(log_file_path)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
@@ -39,19 +41,28 @@ def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) 
     log.info(f"📝 Streaming logs to: {log_file_path}")
     
     # Stream launch logs, then tail job logs
+    # Errors are written to the log file so they're visible
     script = f'''
 import sky
+import traceback
+
 with open("{log_file_path}", "w") as f:
-    # Stream launch logs (provisioning, setup, job submission)
-    sky.stream_and_get("{request_id}", output_stream=f)
-    f.write("\\n--- Job output ---\\n")
-    f.flush()
-    # Stream actual job logs
-    sky.tail_logs("{cluster_name}", job_id=None, follow=True, output_stream=f)
+    try:
+        # Stream launch logs (provisioning, setup, job submission)
+        sky.stream_and_get("{request_id}", output_stream=f)
+        f.write("\\n--- Job output ---\\n")
+        f.flush()
+        # Stream actual job logs
+        sky.tail_logs("{cluster_name}", job_id=None, follow=True, output_stream=f)
+    except Exception as e:
+        f.write(f"\\n\\n=== Log streaming error ===\\n{{e}}\\n")
+        f.write(traceback.format_exc())
+        f.flush()
 '''
     
+    # Use the same Python interpreter that's running this code
     process = subprocess.Popen(
-        ['python3', '-c', script],
+        [sys.executable, '-c', script],
         start_new_session=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -276,19 +287,22 @@ fi
     return "\n".join(commands)
 
 
-def get_existing_cluster(cluster_name: str) -> Optional[dict]:
+def get_existing_cluster(cluster_name: str) -> Optional[Any]:
     """Check if a cluster with the given name already exists.
     
     Args:
         cluster_name: Name of the cluster to check
         
     Returns:
-        Cluster record dict if exists, None otherwise
+        Cluster record (StatusResponse object) if exists, None otherwise
     """
     try:
-        clusters = sky.status()
+        # sky.status() is async, returns request_id; sky.get() returns list of StatusResponse
+        request_id = sky.status()
+        clusters = sky.get(request_id)
         for cluster in clusters:
-            if cluster.get('name') == cluster_name:
+            # StatusResponse is a Pydantic model - use attribute access
+            if cluster.name == cluster_name:
                 return cluster
     except Exception as e:
         log.warning(f"Failed to check cluster status: {e}")
@@ -329,7 +343,7 @@ def launch_remote_job(
         # Check if cluster with this name already exists
         existing = get_existing_cluster(cluster_name)
         if existing:
-            status = existing.get('status', 'unknown')
+            status = existing.status  # StatusResponse uses attribute access
             log.info("")
             log.info(f"⏭️  Instance '{cluster_name}' is already running (status: {status})")
             log.info(f"   View logs:   sky logs {cluster_name}")

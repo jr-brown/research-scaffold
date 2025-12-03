@@ -1,0 +1,50 @@
+# Test GPU name collision detection - ALL IN ONE FILE
+#
+# Expected behavior:
+# 1. exp1 -> Spins up GPU "test-shared-gpu", waits for UP
+# 2. exp2 -> Spins up GPU "test-unique-gpu", waits for UP
+# 3. exp3 -> SKIPS because "test-shared-gpu" already exists from exp1
+#
+# Run with:
+#   python main.py -m remote_test/test_shared_gpu.yaml
+
+experiments:
+  # Experiment 1: Uses "test-shared-gpu"
+  - config_steps:
+      - name: "exp1_shared"
+        function_name: "example_sleep"
+        log_file_path: "outputs/RUN_NAME/output.log"
+        save_config_path: "outputs/RUN_NAME/config.yaml"
+        function_kwargs:
+          sleep_seconds: 300
+          message: "Experiment 1 - spins up test-shared-gpu"
+        instance:
+          name: "test-shared-gpu"
+          sky_config: "example/sky_config.yaml"
+
+  # Experiment 2: Uses different name "test-unique-gpu"
+  # - config_steps:
+  #     - name: "exp2_unique"
+  #       function_name: "example_sleep"
+  #       log_file_path: "outputs/RUN_NAME/output.log"
+  #       save_config_path: "outputs/RUN_NAME/config.yaml"
+  #       function_kwargs:
+  #         sleep_seconds: 300
+  #         message: "Experiment 2 - spins up test-unique-gpu"
+  #       instance:
+  #         name: "test-unique-gpu"
+  #         sky_config: "example/sky_config.yaml"
+
+  # Experiment 3: Uses SAME name as exp1 - should SKIP!
+  - config_steps:
+      - name: "exp3_shared"
+        function_name: "example_sleep"
+        log_file_path: "outputs/RUN_NAME/output.log"
+        save_config_path: "outputs/RUN_NAME/config.yaml"
+        function_kwargs:
+          sleep_seconds: 300
+          message: "Experiment 3 - should SKIP (test-shared-gpu exists)"
+        instance:
+          name: "test-shared-gpu"
+          sky_config: "example/sky_config.yaml"
+

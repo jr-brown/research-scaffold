@@ -1,0 +1,11 @@
+function_args: null
+function_kwargs:
+  message: Experiment 1 - spins up test-shared-gpu
+  sleep_seconds: 300
+function_name: example_sleep
+name: exp1_shared
+time_stamp_name: false
+wandb_entity: null
+wandb_group: null
+wandb_project: null
+wandb_tags: null

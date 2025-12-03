@@ -1,0 +1,11 @@
+function_args: null
+function_kwargs:
+  message: Experiment 2 - spins up test-unique-gpu
+  sleep_seconds: 300
+function_name: example_sleep
+name: exp2_unique
+time_stamp_name: false
+wandb_entity: null
+wandb_group: null
+wandb_project: null
+wandb_tags: null
