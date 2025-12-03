@@ -5,6 +5,7 @@ import base64
 import uuid
 import yaml
 import tempfile
+import time
 import subprocess
 from typing import Optional
 
@@ -397,6 +398,9 @@ def launch_remote_job(
         log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
         log.info(f"   Cluster: {cluster_name}")
         log.info("   Cluster will auto-terminate after job completes")
+        
+        log.info("   Waiting 10s before continuing...")
+        time.sleep(10)
         
         return cluster_name, str(request_id), False  # Newly launched
         
