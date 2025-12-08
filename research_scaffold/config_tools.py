@@ -360,7 +360,7 @@ def process_product_experiment_spec(
             cfg = load_and_compose_config_steps(
                 full_path_sequence,
                 compositions={
-                    "name": lambda x, y: f"{x}_{y}",
+                    "name": lambda x, y: f"{x}--{y}",
                     "wandb_tags": lambda x, y: x + y,  # string concatenation
                 },
                 bonus_dict=bonus_dict,
