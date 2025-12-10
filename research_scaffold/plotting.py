@@ -32,6 +32,12 @@ def get_format_func(format_type: str):
     elif format_type == "B":
         return tck.FuncFormatter(lambda val, _: f"{int(val/1_000_000_000)}B")
 
+    elif format_type == "mins":
+        return tck.FuncFormatter(lambda val, _: f"{int(val/60)}")
+
+    elif format_type == "hours":
+        return tck.FuncFormatter(lambda val, _: f"{int(val/(60*60))}")
+
     else:
         raise ValueError(f"{format_type=} not valid.")
 
