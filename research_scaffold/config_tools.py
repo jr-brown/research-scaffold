@@ -13,12 +13,21 @@ from collections.abc import Callable
 from functools import partial
 
 # Third Party
+import gc
+
 try:
     import jax
 
     has_jax = True
 except ModuleNotFoundError:
     has_jax = False
+
+try:
+    import torch
+
+    has_torch = True
+except ModuleNotFoundError:
+    has_torch = False
 
 import wandb
 
@@ -338,6 +347,10 @@ def execute_from_config(
 
     if has_jax:
         jax.clear_caches()
+
+    if has_torch and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
 
     if file_log_cleanup_fn is not None:
         file_log_cleanup_fn()
@@ -666,6 +679,12 @@ def execute_sweep_from_dict(
                 save_config_path=base_config.save_config_path,
                 sweep_name=sweep_name,  # For SWEEP_NAME substitution
             )
+        
+        # Clean up GPU memory after wandb context exits to release any wandb-held references
+        if has_torch and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log.debug("Cleared CUDA cache after sweep run")
     
     # Run the sweep agent
     log.info(f"Starting sweep agent{f' for {sweep_count} runs' if sweep_count else ''}")
