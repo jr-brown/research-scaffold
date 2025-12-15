@@ -6,6 +6,7 @@ Tools for loading and executing experiments from config files.
 import logging
 import subprocess
 
+from dataclasses import replace
 from os import path, makedirs
 from pprint import pformat
 from typing import Optional
@@ -661,13 +662,16 @@ def execute_sweep_from_dict(
                 sweep_params
             )
             
+            # Create a copy of base_config with the merged kwargs so logging shows actual values
+            run_config = replace(base_config, function_kwargs=merged_kwargs)
+            
             # Execute using execute_from_config with wandb disabled (already initialized above)
             # This gives us RUN_NAME, RUN_GROUP, SWEEP_NAME substitution + log file handling
             execute_from_config(
-                config=base_config,
+                config=run_config,
                 function_map=function_map,
-                function_name=base_config.function_name,
-                function_args=base_config.function_args,
+                function_name=run_config.function_name,
+                function_args=run_config.function_args,
                 function_kwargs=merged_kwargs,
                 name=wandb_run_name,  # Use wandb's auto-generated name
                 time_stamp_name=False,  # Already has timestamp from wandb
