@@ -7,6 +7,7 @@ from tqdm import tqdm
 from pprint import pformat
 from typing import TypeVar, Generic
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from wandb.apis.public.runs import Run
 
@@ -321,6 +322,7 @@ def parameter_subset_search(
     metric_cfg_name_override: str | None = None,
     metric_cfg_goal_override: str | None = None,
     ignored_keys: list[str] | None = None,
+    max_workers: int = 8,
 ):
     log.info(f"Fetching sweep")
     api = wandb.Api()
@@ -345,11 +347,25 @@ def parameter_subset_search(
         sweep.config["parameters"],
         ignored_keys=ignored_keys,
     )
-    runs = {
-        r.id: (r, metric_fn(r))
-        for r in tqdm(sweep.runs, desc="Fetching runs")
-        if r.state == "finished"
-    }
+
+    def fetch_run(r):
+        if r.state == "finished":
+            return r.id, (r, metric_fn(r))
+        return None
+
+    runs = {}
+    sweep_runs = list(sweep.runs)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_run, r): r for r in sweep_runs}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching runs"):
+            try:
+                result = future.result()
+                if result is not None:
+                    run_id, run_data = result
+                    runs[run_id] = run_data
+            except Exception as e:
+                run = futures[future]
+                log.warning(f"Failed to fetch run {run.name}: {e}")
     runs = _filter_runs(runs, search_space)
     search_space = _fit_search_space(search_space, runs)
     current_avg_score = _avg_run_score(runs)

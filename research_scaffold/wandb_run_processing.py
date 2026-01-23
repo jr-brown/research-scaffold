@@ -7,6 +7,7 @@ from re import search
 from tqdm import tqdm
 from typing import Optional, Any
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 Array = np.ndarray
@@ -86,6 +87,7 @@ def get_run_metrics(
     y_offset: float = 0.0,
     x_scale: float = 1.0,
     y_scale: float = 1.0,
+    max_workers: int = 8,
 ) -> list:
 
     if processing_fn is None:
@@ -126,9 +128,23 @@ def get_run_metrics(
             log.warning(f"Couldn't get {r.name} history for {x_key=} {y_key=}")
             return None
 
-    return [
-        processing_fn(history)
-        for r in tqdm(runs, desc="Fetching run histories", leave=False)
-        if (history := history_fn(r, x_key, y_key)) is not None
-    ]
+    def fetch_one(r):
+        history = history_fn(r, x_key, y_key)
+        if history is not None:
+            return processing_fn(history)
+        return None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_one, r): r for r in runs}
+        results = []
+        for future in tqdm(as_completed(futures), total=len(futures),
+                          desc="Fetching run histories", leave=False):
+            try:
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+            except Exception as e:
+                run = futures[future]
+                log.warning(f"Failed to fetch history for {run.name}: {e}")
+        return results
 

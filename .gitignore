@@ -18,3 +18,5 @@ local/
 build/
 
 .env*
+
+CLAUDE.md
