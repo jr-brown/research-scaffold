@@ -8,6 +8,15 @@ setup(name='research-scaffold',
       author_email='jasonrbrown135@gmail.com',
       license='BSD-3',
       packages=['research_scaffold'],
+      install_requires=[
+          'beartype',
+          'wandb',
+          'skypilot[vast]',
+          'pyyaml',
+          'tqdm',
+          'GitPython',
+          'vastai-sdk>=0.1.12',
+      ],
       zip_safe=False)
 
 

@@ -98,13 +98,16 @@ def detect_config_type(config_dict: StringKeyDict) -> str:
     )
 
 
-def get_git_commit_hash() -> str:
-    """Get the current git commit hash."""
-    return (
-        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
-        .decode("ascii")
-        .strip()
-    )
+def get_git_commit_hash() -> str | None:
+    """Get the current git commit hash, or None if not in a git repo."""
+    try:
+        result = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        )
+        return result.decode("ascii").strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
 
 
 def load_dict_from_yaml(yaml_path: str) -> StringKeyDict:
