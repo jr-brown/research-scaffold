@@ -52,10 +52,10 @@ from .util import (
     get_logger,
     nones_to_empty_lists,
     nones_to_empty_dicts,
-    get_time_stamp,
     recursive_dict_update,
-    check_name_sub_general,
     load_config_dict,
+    resolve_run_names,
+    substitute_placeholders,
 )
 from .file_io import load, save
 
@@ -212,14 +212,6 @@ def load_sweep_config(sweep_cfg_path: ConfigInput) -> SweepConfig:
     return SweepConfig(**sc_dict)
 
 
-def remote_execute_from_config(
-    instance: InstanceConfig,
-    config: Config,
-):
-    """Execute a function on a remote instance."""
-    
-    execute_config_remotely(instance, config)
-
 def execute_from_config(
     config: Config,  # Entire config is separately input to easily log it to wandb
     function_map: FunctionMap,
@@ -244,35 +236,34 @@ def execute_from_config(
     Executes a function from a Config object.
     """
 
+    # Resolve names BEFORE dispatching to remote so timestamps are consistent
+    resolved_names = resolve_run_names(
+        name=name,
+        time_stamp_name=time_stamp_name,
+        wandb_group=wandb_group,
+        sweep_name=sweep_name,
+    )
+    name = resolved_names["name"]
+    group = resolved_names["group"]
+
     if instance is not None:
         config.instance = None
-        remote_execute_from_config(instance, config)
+        config.name = name
+        config.time_stamp_name = False
+        execute_config_remotely(instance, config, resolved_names)
         return
 
-    name_base = name
-    group = wandb_group if wandb_group is not None else name_base
-
-    if time_stamp_name:
-        name = f"{name}_{get_time_stamp(include_seconds=True)}"
-
-    check_name_sub = partial(
-        check_name_sub_general, new_name=name, run_name_dummy=run_name_dummy
-    )
-    check_group_sub = partial(
-        check_name_sub_general, new_name=group, run_name_dummy=run_group_dummy
-    )
-    check_sweep_name_sub = partial(
-        check_name_sub_general, new_name=sweep_name or "", run_name_dummy=sweep_name_dummy
-    ) if sweep_name else None
+    def _sub(value):
+        return substitute_placeholders(
+            value, resolved_names,
+            run_name_dummy=run_name_dummy,
+            run_group_dummy=run_group_dummy,
+            sweep_name_dummy=sweep_name_dummy,
+        )
 
     # Add handler to log to file if necessary
     if log_file_path is not None:
-        log_file_path, n_name_subs = check_name_sub(log_file_path, count=0)
-        log_file_path, n_group_subs = check_group_sub(log_file_path, count=0)
-        if check_sweep_name_sub:
-            log_file_path, n_sweep_subs = check_sweep_name_sub(log_file_path, count=0)
-        else:
-            n_sweep_subs = 0
+        log_file_path = _sub(log_file_path)
 
         log_dir = path.dirname(log_file_path)
 
@@ -287,9 +278,6 @@ def execute_from_config(
         file_log_cleanup_fn = lambda: root_logger.removeHandler(file_handler)
 
     else:
-        n_name_subs = 0
-        n_group_subs = 0
-        n_sweep_subs = 0
         file_log_cleanup_fn = None
 
     log.info("========== Config Dict ===========\n" + pformat(config))
@@ -299,22 +287,13 @@ def execute_from_config(
     (function_kwargs,) = nones_to_empty_dicts(function_kwargs)
 
     # Substitute occurrences of RUN_NAME, RUN_GROUP, and SWEEP_NAME
-    function_args, n_name_subs = check_name_sub(function_args, count=n_name_subs)
-    function_args, n_group_subs = check_group_sub(function_args, count=n_group_subs)
-    function_kwargs, n_name_subs = check_name_sub(function_kwargs, count=n_name_subs)
-    function_kwargs, n_group_subs = check_group_sub(function_kwargs, count=n_group_subs)
-    
-    if check_sweep_name_sub:
-        function_args, n_sweep_subs = check_sweep_name_sub(function_args, count=n_sweep_subs)
-        function_kwargs, n_sweep_subs = check_sweep_name_sub(function_kwargs, count=n_sweep_subs)
+    function_args = _sub(function_args)
+    function_kwargs = _sub(function_kwargs)
 
     # Save config to file if requested
     if save_config_path is not None:
-        save_config_path_sub, _ = check_name_sub(save_config_path, count=0)
-        save_config_path_sub, _ = check_group_sub(save_config_path_sub, count=0)
-        if check_sweep_name_sub:
-            save_config_path_sub, _ = check_sweep_name_sub(save_config_path_sub, count=0)
-        
+        save_config_path_sub = _sub(save_config_path)
+
         # Create a dict with the full config including substituted values
         config_to_save = {
             "name": name,
@@ -328,7 +307,7 @@ def execute_from_config(
             "log_file_path": log_file_path,
             "save_config_path": save_config_path_sub,
         }
-        
+
         try:
             save("yaml", config_to_save, save_config_path_sub, overwrite=True)
             log.info(f"Saved config to: {save_config_path_sub}")
@@ -545,15 +524,23 @@ def remote_execute_sweep_from_dict(
     sweep_dict: StringKeyDict,
 ) -> None:
     """Execute a wandb sweep on a remote instance."""
-    
+
     # Get sweep name for logging
     sweep_name = sweep_dict.get("sweep_name", "wandb_sweep")
-    
+
+    # Build resolved_names for sweep placeholder substitution
+    resolved_names = resolve_run_names(
+        name=sweep_name,
+        time_stamp_name=False,
+        sweep_name=sweep_name,
+    )
+
     # Execute the sweep remotely
     execute_sweep_remotely(
         instance_config=instance,
         sweep_dict=sweep_dict,
         sweep_name=sweep_name,
+        resolved_names=resolved_names,
     )
 
 def execute_sweep_from_dict(

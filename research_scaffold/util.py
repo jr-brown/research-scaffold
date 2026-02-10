@@ -175,6 +175,48 @@ def load_config_dict(config_path_or_dict: dict | str) -> dict[str, Any]:
         raise TypeError(f"Expected str or dict, got {type(config_path_or_dict)}")
 
 
+def resolve_run_names(
+    name: str,
+    time_stamp_name: bool = False,
+    wandb_group: Optional[str] = None,
+    sweep_name: Optional[str] = None,
+) -> dict[str, str]:
+    """Resolve the run name, group, and sweep name for an experiment.
+
+    Returns a dict with keys: name, name_base, group, sweep_name.
+    """
+    name_base = name
+    group = wandb_group if wandb_group is not None else name_base
+
+    if time_stamp_name:
+        name = f"{name}_{get_time_stamp(include_seconds=True)}"
+
+    return {
+        "name": name,
+        "name_base": name_base,
+        "group": group,
+        "sweep_name": sweep_name or "",
+    }
+
+
+def substitute_placeholders(
+    value: A,
+    resolved_names: dict[str, str],
+    run_name_dummy: str = "RUN_NAME",
+    run_group_dummy: str = "RUN_GROUP",
+    sweep_name_dummy: str = "SWEEP_NAME",
+) -> A:
+    """Substitute RUN_NAME, RUN_GROUP, and SWEEP_NAME placeholders in a value.
+
+    Works recursively on strings, dicts, and lists.
+    """
+    value, _ = check_name_sub_general(value, new_name=resolved_names["name"], run_name_dummy=run_name_dummy)
+    value, _ = check_name_sub_general(value, new_name=resolved_names["group"], run_name_dummy=run_group_dummy)
+    if resolved_names.get("sweep_name"):
+        value, _ = check_name_sub_general(value, new_name=resolved_names["sweep_name"], run_name_dummy=sweep_name_dummy)
+    return value
+
+
 def deep_update(base_dict: dict, update_dict: dict) -> dict:
     """Deep merge update_dict into base_dict.
     

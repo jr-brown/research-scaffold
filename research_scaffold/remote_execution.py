@@ -12,9 +12,82 @@ import git
 import sky
 
 from .types import Config, InstanceConfig
-from .util import get_logger, load_config_dict, deep_update
+from .util import get_logger, load_config_dict, deep_update, substitute_placeholders
 
 log = get_logger(__name__)
+
+
+def get_git_user_info(repo_root: str) -> tuple[str, str]:
+    """Get git user name and email from local config, with fallback defaults.
+
+    Args:
+        repo_root: Path to the git repository root
+
+    Returns:
+        Tuple of (git_user_name, git_user_email)
+    """
+    repo = git.Repo(repo_root)
+    try:
+        git_user_name = repo.config_reader().get_value("user", "name")
+        git_user_email = repo.config_reader().get_value("user", "email")
+        log.info(f"Using git identity: {git_user_name} <{git_user_email}>")
+    except Exception:
+        git_user_name = "Research Scaffold Remote"
+        git_user_email = "remote-execution@research-scaffold"
+        log.warning(f"Local git user not configured, using fallback: {git_user_name} <{git_user_email}>")
+    return git_user_name, git_user_email
+
+
+def build_git_commit_push_script(
+    job_name: str,
+    current_branch: str,
+    commit_paths: list[str],
+    git_user_name: str,
+    git_user_email: str,
+) -> str:
+    """Build a shell script block that commits specified paths and pushes to remote.
+
+    Includes fallback logic: if pushing to the current branch fails, creates
+    a timestamped fallback branch.
+
+    Args:
+        job_name: Name of the job (used in commit message)
+        current_branch: Branch to push to
+        commit_paths: List of path patterns to git add
+        git_user_name: Git user name for the commit
+        git_user_email: Git user email for the commit
+
+    Returns:
+        Shell script string
+    """
+    add_commands = "\n".join([f"git add {path}" for path in commit_paths])
+
+    return f"""git config --global user.email "{git_user_email}"
+git config --global user.name "{git_user_name}"
+
+# Add specified paths
+{add_commands}
+
+# Commit and push if there are changes
+if git commit -m "Results from {job_name}"; then
+    # Try pushing to the current branch
+    if git push origin {current_branch}; then
+        echo "\\u2705 Results committed and pushed to branch: {current_branch}"
+    else
+        # Push failed - create a new branch and push there as failsafe
+        echo "\\u26a0\\ufe0f  Push to {current_branch} failed. Creating fallback branch..."
+        FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
+        git checkout -b "$FALLBACK_BRANCH"
+        if git push origin "$FALLBACK_BRANCH"; then
+            echo "\\u2705 Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
+            echo "\\u26a0\\ufe0f  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
+        else
+            echo "\\u274c Failed to push even to fallback branch. Results are committed locally but not pushed."
+            exit 1
+        fi
+    fi
+fi
+"""
 
 
 def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) -> subprocess.Popen:
@@ -72,31 +145,27 @@ with open("{log_file_path}", "w") as f:
     return process
 
 
-def save_config_locally(config_dict: dict, save_path: str, run_name: str) -> str:
+def save_config_locally(config_dict: dict, save_path: str) -> str:
     """Save config to a local file.
-    
+
     Args:
         config_dict: The config dictionary to save
-        save_path: Path template (may contain RUN_NAME placeholder)
-        run_name: Name to substitute for RUN_NAME
-        
+        save_path: Path where config should be saved (placeholders should already be substituted)
+
     Returns:
         The actual path where config was saved
     """
-    # Replace RUN_NAME placeholder
-    actual_path = save_path.replace("RUN_NAME", run_name)
-    
     # Ensure directory exists
-    config_dir = os.path.dirname(actual_path)
+    config_dir = os.path.dirname(save_path)
     if config_dir:
         os.makedirs(config_dir, exist_ok=True)
-    
+
     # Save as YAML
-    with open(actual_path, 'w') as f:
+    with open(save_path, 'w') as f:
         yaml.dump(config_dict, f, default_flow_style=False)
-    
-    log.info(f"💾 Config saved locally: {actual_path}")
-    return actual_path
+
+    log.info(f"💾 Config saved locally: {save_path}")
+    return save_path
 
 
 def get_git_info() -> tuple[str, str, str]:
@@ -170,36 +239,14 @@ execute_from_config(config, function_map=function_map, **config_dict)
     
     # Commit and push results if requested
     if commit_paths:
-        # Build git add commands for each path
-        add_commands = "\n".join([f"git add {path}" for path in commit_paths])
-        
-        commands.append(f"""git config --global user.email "{git_user_email}"
-git config --global user.name "{git_user_name}"
+        commands.append(build_git_commit_push_script(
+            job_name=job_name,
+            current_branch=current_branch,
+            commit_paths=commit_paths,
+            git_user_name=git_user_name,
+            git_user_email=git_user_email,
+        ))
 
-# Add specified paths
-{add_commands}
-
-# Commit and push if there are changes
-if git commit -m "Results from {job_name}"; then
-    # Try pushing to the current branch
-    if git push origin {current_branch}; then
-        echo "✅ Results committed and pushed to branch: {current_branch}"
-    else
-        # Push failed - create a new branch and push there as failsafe
-        echo "⚠️  Push to {current_branch} failed. Creating fallback branch..."
-        FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
-        git checkout -b "$FALLBACK_BRANCH"
-        if git push origin "$FALLBACK_BRANCH"; then
-            echo "✅ Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
-            echo "⚠️  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
-        else
-            echo "❌ Failed to push even to fallback branch. Results are committed locally but not pushed."
-            exit 1
-        fi
-    fi
-fi
-""")
-    
     return "\n".join(commands)
 
 
@@ -254,36 +301,14 @@ execute_sweep_from_dict(function_map=function_map, sweep_dict=sweep_dict)
     
     # Commit and push results if requested
     if commit_paths:
-        # Build git add commands for each path
-        add_commands = "\n".join([f"git add {path}" for path in commit_paths])
-        
-        commands.append(f"""git config --global user.email "{git_user_email}"
-git config --global user.name "{git_user_name}"
+        commands.append(build_git_commit_push_script(
+            job_name=job_name,
+            current_branch=current_branch,
+            commit_paths=commit_paths,
+            git_user_name=git_user_name,
+            git_user_email=git_user_email,
+        ))
 
-# Add specified paths
-{add_commands}
-
-# Commit and push if there are changes
-if git commit -m "Results from {job_name}"; then
-    # Try pushing to the current branch
-    if git push origin {current_branch}; then
-        echo "✅ Results committed and pushed to branch: {current_branch}"
-    else
-        # Push failed - create a new branch and push there as failsafe
-        echo "⚠️  Push to {current_branch} failed. Creating fallback branch..."
-        FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
-        git checkout -b "$FALLBACK_BRANCH"
-        if git push origin "$FALLBACK_BRANCH"; then
-            echo "✅ Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
-            echo "⚠️  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
-        else
-            echo "❌ Failed to push even to fallback branch. Results are committed locally but not pushed."
-            exit 1
-        fi
-    fi
-fi
-""")
-    
     return "\n".join(commands)
 
 
@@ -439,61 +464,56 @@ def launch_remote_job(
 def execute_config_remotely(
     instance_config: InstanceConfig,
     config: Config,
+    resolved_names: dict[str, str],
 ) -> str:
     """Execute a config remotely using SkyPilot (fire and forget).
-    
+
     Config is saved locally (if save_config_path is set) and logs are streamed
     back to the local machine (if log_file_path is set).
-    
+
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         config: Experiment configuration to execute
-        
+        resolved_names: Dict with resolved name, name_base, group, sweep_name
+
     Returns:
         The cluster name for later reference
-        
+
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
     """
     log.info(f"Launching remote execution for config: {config.name}")
-    
+
     # Get git information
     repo_root, current_branch, _ = get_git_info()
     original_cwd = os.getcwd()
     rel_cwd = os.path.relpath(original_cwd, repo_root)
     if rel_cwd == ".":
         rel_cwd = ""
-    
-    # Get local git user config to use on remote
-    repo = git.Repo(repo_root)
-    try:
-        git_user_name = repo.config_reader().get_value("user", "name")
-        git_user_email = repo.config_reader().get_value("user", "email")
-        log.info(f"Using git identity: {git_user_name} <{git_user_email}>")
-    except Exception:
-        # Fallback if user hasn't configured git locally
-        git_user_name = "Research Scaffold Remote"
-        git_user_email = "remote-execution@research-scaffold"
-        log.warning(f"Local git user not configured, using fallback: {git_user_name} <{git_user_email}>")
-    
+
+    git_user_name, git_user_email = get_git_user_info(repo_root)
+
+    def _sub(value):
+        return substitute_placeholders(value, resolved_names)
+
     # Prepare config dict (remove instance to avoid circular reference)
     config_dict = config.d.copy()
     config_dict.pop('instance', None)
-    
+
     # Save config locally (before launching remote job)
     local_log_file_path = config_dict.pop('log_file_path', None)
     local_save_config_path = config_dict.pop('save_config_path', None)
-    
+
     if local_save_config_path:
-        save_config_locally(config_dict, local_save_config_path, config.name)
-    
-    # Replace RUN_NAME in instance fields
+        save_config_locally(config_dict, _sub(local_save_config_path))
+
+    # Substitute placeholders in instance fields
     if instance_config.name:
-        instance_config.name = instance_config.name.replace("RUN_NAME", config.name)
+        instance_config.name = _sub(instance_config.name)
 
     if instance_config.commit:
-        instance_config.commit = [p.replace("RUN_NAME", config.name) for p in instance_config.commit]
-    
+        instance_config.commit = [_sub(p) for p in instance_config.commit]
+
     # Build the experiment run command (config sent to remote has no log/save paths)
     experiment_run_cmd = build_experiment_run_command(
         config_dict=config_dict,
@@ -504,19 +524,19 @@ def execute_config_remotely(
         git_user_name=git_user_name,
         git_user_email=git_user_email,
     )
-    
+
     # Launch the remote job
     cluster_name, request_id, was_already_running = launch_remote_job(
         instance_config=instance_config,
         job_name=config.name,
         run_command=experiment_run_cmd,
     )
-    
+
     # Start streaming logs to local file (if configured and job was actually launched)
     if local_log_file_path and request_id and not was_already_running:
-        actual_log_path = local_log_file_path.replace("RUN_NAME", config.name)
+        actual_log_path = _sub(local_log_file_path)
         start_log_streaming(request_id, cluster_name, actual_log_path)
-    
+
     return cluster_name
 
 
@@ -524,56 +544,63 @@ def execute_sweep_remotely(
     instance_config: InstanceConfig,
     sweep_dict: dict,
     sweep_name: str,
+    resolved_names: Optional[dict[str, str]] = None,
     log_file_path: Optional[str] = None,
     save_config_path: Optional[str] = None,
 ) -> str:
     """Execute a wandb sweep remotely using SkyPilot (fire and forget).
-    
-    Sweep config is saved locally (if save_config_path is set) and logs are 
+
+    Sweep config is saved locally (if save_config_path is set) and logs are
     streamed back to the local machine (if log_file_path is set).
-    
+
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         sweep_dict: Sweep configuration dictionary
         sweep_name: Name of the sweep for logging
-        log_file_path: Optional local path to stream logs to (may contain RUN_NAME)
-        save_config_path: Optional local path to save sweep config (may contain RUN_NAME)
-        
+        resolved_names: Dict with resolved name, name_base, group, sweep_name.
+            If None, a default is built from sweep_name.
+        log_file_path: Optional local path to stream logs to (may contain placeholders)
+        save_config_path: Optional local path to save sweep config (may contain placeholders)
+
     Returns:
         The cluster name for later reference
-        
+
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
     """
     log.info(f"Launching remote execution for sweep: {sweep_name}")
-    
+
+    if resolved_names is None:
+        resolved_names = {
+            "name": sweep_name,
+            "name_base": sweep_name,
+            "group": sweep_name,
+            "sweep_name": sweep_name,
+        }
+
     # Get git information
     repo_root, current_branch, _ = get_git_info()
     original_cwd = os.getcwd()
     rel_cwd = os.path.relpath(original_cwd, repo_root)
     if rel_cwd == ".":
         rel_cwd = ""
-    
-    # Get local git user config to use on remote
-    repo = git.Repo(repo_root)
-    try:
-        git_user_name = repo.config_reader().get_value("user", "name")
-        git_user_email = repo.config_reader().get_value("user", "email")
-        log.info(f"Using git identity: {git_user_name} <{git_user_email}>")
-    except Exception:
-        # Fallback if user hasn't configured git locally
-        git_user_name = "Research Scaffold Remote"
-        git_user_email = "remote-execution@research-scaffold"
-        log.warning(f"Local git user not configured, using fallback: {git_user_name} <{git_user_email}>")
-    
+
+    git_user_name, git_user_email = get_git_user_info(repo_root)
+
+    def _sub(value):
+        return substitute_placeholders(value, resolved_names)
+
     # Save sweep config locally (before launching remote job)
     if save_config_path:
-        save_config_locally(sweep_dict, save_config_path, sweep_name)
-    
-    # Replace RUN_NAME in instance name if present
+        save_config_locally(sweep_dict, _sub(save_config_path))
+
+    # Substitute placeholders in instance fields
     if instance_config.name:
-        instance_config.name = instance_config.name.replace("RUN_NAME", sweep_name)
-    
+        instance_config.name = _sub(instance_config.name)
+
+    if instance_config.commit:
+        instance_config.commit = [_sub(p) for p in instance_config.commit]
+
     # Build the sweep run command
     sweep_run_cmd = build_sweep_run_command(
         sweep_dict=sweep_dict,
@@ -584,17 +611,17 @@ def execute_sweep_remotely(
         git_user_name=git_user_name,
         git_user_email=git_user_email,
     )
-    
+
     # Launch the remote job
     cluster_name, request_id, was_already_running = launch_remote_job(
         instance_config=instance_config,
         job_name=sweep_name,
         run_command=sweep_run_cmd,
     )
-    
+
     # Start streaming logs to local file (if configured and job was actually launched)
     if log_file_path and request_id and not was_already_running:
-        actual_log_path = log_file_path.replace("RUN_NAME", sweep_name)
+        actual_log_path = _sub(log_file_path)
         start_log_streaming(request_id, cluster_name, actual_log_path)
-    
+
     return cluster_name
