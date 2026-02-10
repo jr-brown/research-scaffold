@@ -487,9 +487,12 @@ def execute_config_remotely(
     if local_save_config_path:
         save_config_locally(config_dict, local_save_config_path, config.name)
     
-    # Replace RUN_NAME in instance name if present
+    # Replace RUN_NAME in instance fields
     if instance_config.name:
         instance_config.name = instance_config.name.replace("RUN_NAME", config.name)
+
+    if instance_config.commit:
+        instance_config.commit = [p.replace("RUN_NAME", config.name) for p in instance_config.commit]
     
     # Build the experiment run command (config sent to remote has no log/save paths)
     experiment_run_cmd = build_experiment_run_command(
