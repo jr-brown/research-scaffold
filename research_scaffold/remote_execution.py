@@ -6,7 +6,7 @@ import uuid
 import yaml
 import tempfile
 import subprocess
-from typing import Any, Optional
+from typing import Optional
 
 import git
 import sky
@@ -287,23 +287,27 @@ fi
     return "\n".join(commands)
 
 
-def get_existing_cluster(cluster_name: str) -> Optional[Any]:
+def get_existing_cluster(cluster_name: str) -> Optional[dict]:
     """Check if a cluster with the given name already exists.
-    
+
     Args:
         cluster_name: Name of the cluster to check
-        
+
     Returns:
-        Cluster record (StatusResponse object) if exists, None otherwise
+        Cluster record dict if exists, None otherwise
     """
     try:
-        # sky.status() is async, returns request_id; sky.get() returns list of StatusResponse
-        request_id = sky.status()
+        request_id = sky.status(cluster_names=[cluster_name])
         clusters = sky.get(request_id)
-        for cluster in clusters:
-            # StatusResponse is a Pydantic model - use attribute access
-            if cluster.name == cluster_name:
+        if clusters:
+            cluster = clusters[0]
+            # SkyPilot 0.11+ returns pydantic models; convert to dict
+            if hasattr(cluster, 'model_dump'):
+                return cluster.model_dump()
+            elif isinstance(cluster, dict):
                 return cluster
+            else:
+                return {'status': getattr(cluster, 'status', 'UNKNOWN'), 'name': cluster_name}
     except Exception as e:
         log.warning(f"Failed to check cluster status: {e}")
     return None
@@ -343,7 +347,7 @@ def launch_remote_job(
         # Check if cluster with this name already exists
         existing = get_existing_cluster(cluster_name)
         if existing:
-            status = existing.status  # StatusResponse uses attribute access
+            status = existing['status']
             log.info("")
             log.info(f"⏭️  Instance '{cluster_name}' is already running (status: {status})")
             log.info(f"   View logs:   sky logs {cluster_name}")
@@ -407,15 +411,15 @@ def launch_remote_job(
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
         )
-        
+
         log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
         log.info(f"   Cluster: {cluster_name}")
         log.info("   Cluster will auto-terminate after job completes")
-        
+
         # Wait for cluster to be fully provisioned before returning
         # This prevents double-booking GPUs when launching multiple jobs
         log.info("   Waiting for cluster to be UP...")
-        sky.get(request_id)  # Blocks until cluster is UP and job is submitted
+        job_id, handle = sky.get(request_id)  # Blocks until cluster is UP and job is submitted
         log.info("   ✅ Cluster is UP, job submitted")
         
         return cluster_name, str(request_id), False  # Newly launched
