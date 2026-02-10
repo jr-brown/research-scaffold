@@ -1,8 +1,0 @@
-#python >= 3.10
-wandb
-beartype
-pyyaml
-tqdm
-skypilot[vast]
-GitPython
-vastai-sdk>=0.1.12
