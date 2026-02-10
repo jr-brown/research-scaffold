@@ -384,16 +384,13 @@ def launch_remote_job(
         
         sky_config['workdir'] = repo_root
 
-        # Inject git commit hash so the remote checks out the exact code.
-        # Uses instance_config.git_commit if specified, otherwise current HEAD.
-        envs = sky_config.setdefault('envs', {})
+        # Optionally inject git commit hash so the remote checks out exact code.
+        # Only set GIT_COMMIT if explicitly specified; otherwise the remote stays
+        # on its current branch (allowing pushes without detached HEAD).
         if instance_config.git_commit:
+            envs = sky_config.setdefault('envs', {})
             envs['GIT_COMMIT'] = instance_config.git_commit
             log.info(f"Pinning remote to specified commit: {instance_config.git_commit[:8]}")
-        else:
-            repo = git.Repo(repo_root)
-            envs['GIT_COMMIT'] = repo.head.commit.hexsha
-            log.info(f"Pinning remote to current HEAD: {repo.head.commit.hexsha[:8]}")
 
         # Inject the run command into the Sky config
         original_run = sky_config.get('run', '')
