@@ -20,31 +20,32 @@ setup: |
   set -a
   source ~/sky_workdir/.env
   set +a
-  
+
   # Setup git from scratch (no mounted .gitconfig)
   git config --global user.name "Remote Runner"
   git config --global user.email "remote@runner.local"
   git config --global credential.helper store
   echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
-  
+
   # Fix git ownership and convert SSH remote to HTTPS
   cd ~/sky_workdir
   git config --global --add safe.directory ~/sky_workdir
   git remote set-url origin $(git remote get-url origin | sed 's|git@github.com:|https://github.com/|')
-  
-  # Install dependencies and the research-scaffold package
-  python3 -m pip install -r requirements.txt
-  python3 -m pip install -e .
-  
+
+  # Install uv and sync dependencies
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  source $HOME/.local/bin/env
+  cd ~/sky_workdir && uv sync
+
   # Install useful utilities
   sudo apt-get update
   sudo apt-get install -y tmux htop direnv
-  
+
   # Setup direnv
   echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
   eval "$(direnv hook bash)"
   cd ~/sky_workdir && direnv allow
-  
+
   echo "✅ Setup complete"
 
 run: |
@@ -53,5 +54,19 @@ run: |
   source ~/sky_workdir/.env
   set +a
   echo "✅ Environment loaded"
-  
+
+  # Activate the uv-managed venv so injected python3 commands use the correct Python
+  source ~/sky_workdir/.venv/bin/activate
+
+  # Checkout the exact commit pinned at launch time (injected by research_scaffold)
+  cd ~/sky_workdir
+  git fetch origin
+  if [ -n "${GIT_COMMIT}" ]; then
+    git checkout "${GIT_COMMIT}"
+    echo "✅ Checked out pinned commit: $(git rev-parse --short HEAD)"
+  else
+    git pull origin $(git rev-parse --abbrev-ref HEAD) --ff-only
+    echo "✅ Pulled latest: $(git rev-parse --short HEAD)"
+  fi
+
   # Experiment command is injected here by remote_execution.py

@@ -36,3 +36,7 @@ instance:
   # (useful if you want results saved in git in addition to local streaming)
   # commit:
   #   - "outputs/**"
+
+  # Optional: Pin the remote to a specific git commit.
+  # If not specified, defaults to the current HEAD at launch time.
+  # git_commit: "abc123def456"

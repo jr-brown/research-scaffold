@@ -5,9 +5,10 @@ Run experiments from YAML configs with support for composition, sweeps, and remo
 ## Usage
 
 ```bash
-python main.py -c config.yaml        # single experiment
-python main.py -m meta_config.yaml   # multiple experiments, composition, grid search
-python main.py -s sweep.yaml         # wandb hyperparameter sweep
+uv sync                                      # install all deps (including dev)
+uv run python main.py -c config.yaml        # single experiment
+uv run python main.py -m meta_config.yaml   # multiple experiments, composition, grid search
+uv run python main.py -s sweep.yaml         # wandb hyperparameter sweep
 ```
 
 The `-c` flag accepts config files, inline dicts, or config paths. You can also pass multiple configs that get composed together.
@@ -27,6 +28,9 @@ instance:
       accelerators: "V100:1"
   commit:                                 # paths to commit/push after run
     - "outputs/**"
+  git_commit: "abc123def"                # optional: pin to a specific commit (defaults to current HEAD)
 ```
+
+The remote is automatically pinned to the current git HEAD (or the specified `git_commit`) via a `GIT_COMMIT` environment variable injected into the SkyPilot task.
 
 See `example/` for more.

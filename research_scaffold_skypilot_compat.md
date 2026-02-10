@@ -1,5 +1,7 @@
 # research_scaffold SkyPilot API Compatibility Issues
 
+> **Status: RESOLVED** — All issues below have been fixed in `remote_execution.py`.
+
 ## Problem
 
 `research_scaffold/remote_execution.py` was written against a SkyPilot API that
@@ -129,23 +131,8 @@ sky.download_logs(
 
 ## Second Issue: Python Version on Remote
 
+> **Status: RESOLVED** — The project now uses uv, which manages the Python version itself.
+
 The `runpod/base:0.0.2` image used in `sky_config.yaml` ships Python 3.10.13.
-The project requires `>=3.11` (in `pyproject.toml`), so `pip install -e .` fails
-on the remote with:
-
-```
-ERROR: Package 'llm-sft-alignment-research' requires a different Python: 3.10.13 not in '>=3.11'
-```
-
-**Fix options:**
-1. Use a Docker image with Python 3.11+ (e.g., `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`)
-2. Install Python 3.11+ in the `setup:` block before `pip install -e .`
-3. Use `uv` on the remote (can target a specific Python version)
-
-To set the image in `sky_config.yaml`:
-```yaml
-resources:
-  cloud: runpod
-  accelerators: A40:1
-  image_id: docker:runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
-```
+The project requires `>=3.11` (in `pyproject.toml`). This is no longer an issue
+because `uv sync` installs the correct Python version automatically.
