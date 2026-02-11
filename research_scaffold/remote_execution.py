@@ -60,7 +60,7 @@ def build_git_commit_push_script(
     Returns:
         Shell script string
     """
-    add_commands = "\n".join([f"git add {path}" for path in commit_paths])
+    add_commands = "\n".join([f"git add -f {path}" for path in commit_paths])
 
     return f"""git config --global user.email "{git_user_email}"
 git config --global user.name "{git_user_name}"
@@ -443,6 +443,7 @@ def launch_remote_job(
             task,
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
+            retry_until_up=instance_config.retry_until_up,
         )
 
         log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
