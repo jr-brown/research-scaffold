@@ -1,0 +1,6 @@
+resources:
+  cloud: aws
+  accelerators: T4:1
+
+run: |
+  echo "setup complete"

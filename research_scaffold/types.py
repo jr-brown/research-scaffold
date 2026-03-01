@@ -25,6 +25,7 @@ class InstanceConfig:
     name: Optional[str] = None  # Custom cluster name (if not provided, auto-generates a uuid-based name)
     git_commit: Optional[str] = None  # Pin remote to a specific git commit (defaults to current HEAD)
     retry_until_up: bool = False  # Retry provisioning until the cluster is up
+    managed: bool = False  # Use SkyPilot managed jobs (sky.jobs.launch) instead of sky.launch
 
 
 @dataclass

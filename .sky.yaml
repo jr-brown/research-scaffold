@@ -1,0 +1,4 @@
+jobs:
+  controller:
+    resources:
+      disk_size: 40

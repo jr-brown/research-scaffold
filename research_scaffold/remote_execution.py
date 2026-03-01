@@ -76,15 +76,31 @@ if git commit -m "Results from {job_name}"; then
     else
         # Push failed - create a new branch and push there as failsafe
         echo "\\u26a0\\ufe0f  Push to {current_branch} failed. Creating fallback branch..."
-        FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
-        git checkout -b "$FALLBACK_BRANCH"
-        if git push origin "$FALLBACK_BRANCH"; then
-            echo "\\u2705 Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
-            echo "\\u26a0\\ufe0f  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
-        else
-            echo "\\u274c Failed to push even to fallback branch. Results are committed locally but not pushed."
-            exit 1
-        fi
+        MAX_RETRIES=5
+        for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            FALLBACK_BRANCH="{current_branch}-results-$(date +%Y%m%d-%H%M%S)"
+            # Check if branch already exists on remote
+            if git ls-remote --exit-code --heads origin "$FALLBACK_BRANCH" >/dev/null 2>&1; then
+                echo "\\u26a0\\ufe0f  Branch $FALLBACK_BRANCH already exists, retrying..."
+                sleep $((RANDOM % 5 + 1))
+                continue
+            fi
+            git checkout -b "$FALLBACK_BRANCH"
+            if git push origin "$FALLBACK_BRANCH"; then
+                echo "\\u2705 Results committed and pushed to fallback branch: $FALLBACK_BRANCH"
+                echo "\\u26a0\\ufe0f  IMPORTANT: Merge $FALLBACK_BRANCH back into {current_branch} manually"
+                break
+            else
+                echo "\\u26a0\\ufe0f  Push to $FALLBACK_BRANCH failed, retrying..."
+                git checkout -
+                git branch -D "$FALLBACK_BRANCH"
+                sleep $((RANDOM % 5 + 1))
+            fi
+            if [ "$ATTEMPT" -eq "$MAX_RETRIES" ]; then
+                echo "\\u274c Failed to push after $MAX_RETRIES attempts. Results are committed locally but not pushed."
+                exit 1
+            fi
+        done
     fi
 fi
 """
@@ -338,37 +354,108 @@ def get_existing_cluster(cluster_name: str) -> Optional[dict]:
     return None
 
 
+def _build_sky_task(
+    instance_config: InstanceConfig,
+    run_command: str,
+):
+    """Build a SkyPilot Task from instance config and a run command.
+
+    Handles sky config loading, patch application, workdir setting,
+    GIT_COMMIT env var injection, and run command injection.
+
+    Args:
+        instance_config: Instance configuration specifying sky_config and patches
+        run_command: The command to inject into the task's run block
+
+    Returns:
+        A configured sky.Task ready to launch
+
+    Raises:
+        RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
+    """
+    # Determine sky config path: use instance_config.sky_config or fall back to SKY_PATH env var
+    sky_config_path = instance_config.sky_config
+    if sky_config_path is None:
+        sky_config_path = os.environ.get('SKY_PATH')
+        if sky_config_path is None:
+            raise RuntimeError(
+                "No sky_config specified in instance config and SKY_PATH environment variable not set. "
+                "Either set 'sky_config' in your instance config or set the SKY_PATH environment variable."
+            )
+        log.info(f"Using SKY_PATH environment variable: {sky_config_path}")
+
+    repo_root, _, _ = get_git_info()
+
+    log.info(f"Loading Sky config from: {sky_config_path}")
+    sky_config = load_config_dict(sky_config_path)
+
+    if instance_config.patch:
+        log.info("Applying Sky config patch")
+        patch_dict = load_config_dict(instance_config.patch)
+        sky_config = deep_update(sky_config, patch_dict)
+
+    sky_config['workdir'] = repo_root
+
+    # Optionally inject git commit hash so the remote checks out exact code.
+    # Only set GIT_COMMIT if explicitly specified; otherwise the remote stays
+    # on its current branch (allowing pushes without detached HEAD).
+    if instance_config.git_commit:
+        envs = sky_config.setdefault('envs', {})
+        envs['GIT_COMMIT'] = instance_config.git_commit
+        log.info(f"Pinning remote to specified commit: {instance_config.git_commit[:8]}")
+
+    # Inject the run command into the Sky config
+    original_run = sky_config.get('run', '')
+    if original_run and not original_run.endswith('\n'):
+        original_run += '\n'
+
+    sky_config['run'] = original_run + run_command
+
+    # Create SkyPilot task from the config
+    log.info("Creating SkyPilot task")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        yaml.dump(sky_config, f)
+        temp_config_path = f.name
+
+    try:
+        task = sky.Task.from_yaml(temp_config_path)
+    finally:
+        os.unlink(temp_config_path)
+
+    return task
+
+
 def launch_remote_job(
     instance_config: InstanceConfig,
     job_name: str,
     run_command: str,
 ) -> tuple[str, Optional[str], bool]:
     """Launch a remote job using SkyPilot (fire and forget).
-    
+
     This launches the job asynchronously and returns immediately without
     waiting for the job to complete.
-    
+
     If instance_config.name is provided and a cluster with that name already
     exists, the function will skip launching and return the existing cluster name.
-    
+
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         job_name: Name of the job for logging
         run_command: The command to run remotely
-        
+
     Returns:
         Tuple of (cluster_name, request_id, was_already_running):
         - cluster_name: The cluster name for later reference
         - request_id: The SkyPilot request ID (for log streaming), None if already running
         - was_already_running: True if cluster already existed (no new job launched)
-        
+
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
     """
     # Determine cluster name: use custom name or generate one
     if instance_config.name:
         cluster_name = instance_config.name
-        
+
         # Check if cluster with this name already exists
         existing = get_existing_cluster(cluster_name)
         if existing:
@@ -381,63 +468,18 @@ def launch_remote_job(
             return cluster_name, None, True  # Already running
     else:
         cluster_name = f"c{uuid.uuid4().hex[:8]}"
-    
-    # Determine sky config path: use instance_config.sky_config or fall back to SKY_PATH env var
-    sky_config_path = instance_config.sky_config
-    if sky_config_path is None:
-        sky_config_path = os.environ.get('SKY_PATH')
-        if sky_config_path is None:
-            raise RuntimeError(
-                "No sky_config specified in instance config and SKY_PATH environment variable not set. "
-                "Either set 'sky_config' in your instance config or set the SKY_PATH environment variable."
-            )
-        log.info(f"Using SKY_PATH environment variable: {sky_config_path}")
-    
+
     original_cwd = os.getcwd()
-    
+
     try:
         repo_root, _, _ = get_git_info()
         os.chdir(repo_root)
-        
-        log.info(f"Loading Sky config from: {sky_config_path}")
-        sky_config = load_config_dict(sky_config_path)
-        
-        if instance_config.patch:
-            log.info("Applying Sky config patch")
-            patch_dict = load_config_dict(instance_config.patch)
-            sky_config = deep_update(sky_config, patch_dict)
-        
-        sky_config['workdir'] = repo_root
 
-        # Optionally inject git commit hash so the remote checks out exact code.
-        # Only set GIT_COMMIT if explicitly specified; otherwise the remote stays
-        # on its current branch (allowing pushes without detached HEAD).
-        if instance_config.git_commit:
-            envs = sky_config.setdefault('envs', {})
-            envs['GIT_COMMIT'] = instance_config.git_commit
-            log.info(f"Pinning remote to specified commit: {instance_config.git_commit[:8]}")
+        task = _build_sky_task(instance_config, run_command)
 
-        # Inject the run command into the Sky config
-        original_run = sky_config.get('run', '')
-        if original_run and not original_run.endswith('\n'):
-            original_run += '\n'
-        
-        sky_config['run'] = original_run + run_command
-        
-        # Create SkyPilot task from the config
-        log.info("Creating SkyPilot task")
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            yaml.dump(sky_config, f)
-            temp_config_path = f.name
-        
-        try:
-            task = sky.Task.from_yaml(temp_config_path)
-        finally:
-            os.unlink(temp_config_path)
-        
         log.info(f"Cluster name: {cluster_name}")
         log.info("Launching remote job...")
-        
+
         # Launch the task - returns a request_id for async tracking
         request_id = sky.launch(
             task,
@@ -455,11 +497,104 @@ def launch_remote_job(
         log.info("   Waiting for cluster to be UP...")
         job_id, handle = sky.get(request_id)  # Blocks until cluster is UP and job is submitted
         log.info("   ✅ Cluster is UP, job submitted")
-        
+
         return cluster_name, str(request_id), False  # Newly launched
-        
+
     finally:
         os.chdir(original_cwd)
+
+
+def launch_managed_job(
+    instance_config: InstanceConfig,
+    job_name: str,
+    run_command: str,
+) -> tuple[str, str]:
+    """Launch a managed job using SkyPilot managed jobs (fire and forget).
+
+    Uses sky.jobs.launch() instead of sky.launch(). Managed jobs are
+    controller-managed with automatic teardown and spot recovery.
+    Does NOT block — returns immediately after submitting.
+
+    Args:
+        instance_config: Instance configuration specifying sky_config and patches
+        job_name: Name of the job for logging
+        run_command: The command to run remotely
+
+    Returns:
+        Tuple of (managed_job_name, request_id)
+
+    Raises:
+        RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
+    """
+    managed_job_name = instance_config.name if instance_config.name else f"j{uuid.uuid4().hex[:8]}"
+
+    original_cwd = os.getcwd()
+
+    try:
+        repo_root, _, _ = get_git_info()
+        os.chdir(repo_root)
+
+        task = _build_sky_task(instance_config, run_command)
+
+        log.info(f"Managed job name: {managed_job_name}")
+        log.info("Launching managed job...")
+
+        request_id = sky.jobs.launch(task, name=managed_job_name)
+
+        log.info(f"🚀 Managed job '{job_name}' submitted (request: {request_id})")
+        log.info(f"   Job name: {managed_job_name}")
+        log.info("   Monitor: sky jobs queue")
+        log.info(f"   Logs:    sky jobs logs {managed_job_name}")
+
+        return managed_job_name, str(request_id)
+
+    finally:
+        os.chdir(original_cwd)
+
+
+def start_managed_log_streaming(managed_job_name: str, log_file_path: str) -> subprocess.Popen:
+    """Stream logs from a SkyPilot managed job to a local file.
+
+    Spawns a background subprocess that calls sky.jobs.tail_logs()
+    to stream the managed job's output to a local file.
+
+    Args:
+        managed_job_name: The managed job name to tail logs for
+        log_file_path: Local path to write logs to
+
+    Returns:
+        The background process
+    """
+    import sys
+
+    log_dir = os.path.dirname(log_file_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    log.info(f"📝 Streaming managed job logs to: {log_file_path}")
+
+    script = f'''
+import sky
+import traceback
+
+with open("{log_file_path}", "w") as f:
+    try:
+        sky.jobs.tail_logs(name="{managed_job_name}", follow=True, output_stream=f)
+    except Exception as e:
+        f.write(f"\\n\\n=== Log streaming error ===\\n{{e}}\\n")
+        f.write(traceback.format_exc())
+        f.flush()
+'''
+
+    process = subprocess.Popen(
+        [sys.executable, '-c', script],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    log.info(f"   Monitor: tail -f {log_file_path}")
+    return process
 
 
 def execute_config_remotely(
@@ -526,19 +661,32 @@ def execute_config_remotely(
         git_user_email=git_user_email,
     )
 
-    # Launch the remote job
-    cluster_name, request_id, was_already_running = launch_remote_job(
-        instance_config=instance_config,
-        job_name=config.name,
-        run_command=experiment_run_cmd,
-    )
+    # Launch the remote job (managed or standard)
+    if instance_config.managed:
+        managed_job_name, request_id = launch_managed_job(
+            instance_config=instance_config,
+            job_name=config.name,
+            run_command=experiment_run_cmd,
+        )
 
-    # Start streaming logs to local file (if configured and job was actually launched)
-    if local_log_file_path and request_id and not was_already_running:
-        actual_log_path = _sub(local_log_file_path)
-        start_log_streaming(request_id, cluster_name, actual_log_path)
+        if local_log_file_path:
+            actual_log_path = _sub(local_log_file_path)
+            start_managed_log_streaming(managed_job_name, actual_log_path)
 
-    return cluster_name
+        return managed_job_name
+    else:
+        cluster_name, request_id, was_already_running = launch_remote_job(
+            instance_config=instance_config,
+            job_name=config.name,
+            run_command=experiment_run_cmd,
+        )
+
+        # Start streaming logs to local file (if configured and job was actually launched)
+        if local_log_file_path and request_id and not was_already_running:
+            actual_log_path = _sub(local_log_file_path)
+            start_log_streaming(request_id, cluster_name, actual_log_path)
+
+        return cluster_name
 
 
 def execute_sweep_remotely(
@@ -613,16 +761,29 @@ def execute_sweep_remotely(
         git_user_email=git_user_email,
     )
 
-    # Launch the remote job
-    cluster_name, request_id, was_already_running = launch_remote_job(
-        instance_config=instance_config,
-        job_name=sweep_name,
-        run_command=sweep_run_cmd,
-    )
+    # Launch the remote job (managed or standard)
+    if instance_config.managed:
+        managed_job_name, request_id = launch_managed_job(
+            instance_config=instance_config,
+            job_name=sweep_name,
+            run_command=sweep_run_cmd,
+        )
 
-    # Start streaming logs to local file (if configured and job was actually launched)
-    if log_file_path and request_id and not was_already_running:
-        actual_log_path = _sub(log_file_path)
-        start_log_streaming(request_id, cluster_name, actual_log_path)
+        if log_file_path:
+            actual_log_path = _sub(log_file_path)
+            start_managed_log_streaming(managed_job_name, actual_log_path)
 
-    return cluster_name
+        return managed_job_name
+    else:
+        cluster_name, request_id, was_already_running = launch_remote_job(
+            instance_config=instance_config,
+            job_name=sweep_name,
+            run_command=sweep_run_cmd,
+        )
+
+        # Start streaming logs to local file (if configured and job was actually launched)
+        if log_file_path and request_id and not was_already_running:
+            actual_log_path = _sub(log_file_path)
+            start_log_streaming(request_id, cluster_name, actual_log_path)
+
+        return cluster_name

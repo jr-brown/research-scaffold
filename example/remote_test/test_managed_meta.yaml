@@ -1,0 +1,44 @@
+# Live-fire test of SkyPilot managed jobs on RunPod
+#
+# Two experiments launched as managed jobs (fire-and-forget, non-blocking).
+# Uses example_simple (fast, no GPU compute needed) on cheapest RunPod GPU.
+#
+# Run with:
+#   cd example && uv run python main.py -m remote_test/test_managed_meta.yaml
+#
+# Monitor:
+#   uv run sky jobs queue
+#   tail -f example/outputs/managed-exp-1/output.log
+#   tail -f example/outputs/managed-exp-2/output.log
+#
+# Cleanup:
+#   uv run sky jobs cancel --all
+
+experiments:
+  # Experiment 1
+  - config_steps:
+      - name: "managed-exp-1"
+        function_name: "example_simple"
+        log_file_path: "outputs/RUN_NAME/output.log"
+        save_config_path: "outputs/RUN_NAME/config.yaml"
+        function_kwargs:
+          param_a: "hello_from_managed_1"
+          param_b: 42
+        instance:
+          managed: true
+          name: "test-managed-RUN_NAME"
+          sky_config: "example/sky_config_runpod.yaml"
+
+  # Experiment 2
+  - config_steps:
+      - name: "managed-exp-2"
+        function_name: "example_simple"
+        log_file_path: "outputs/RUN_NAME/output.log"
+        save_config_path: "outputs/RUN_NAME/config.yaml"
+        function_kwargs:
+          param_a: "hello_from_managed_2"
+          param_b: 99
+        instance:
+          managed: true
+          name: "test-managed-RUN_NAME"
+          sky_config: "example/sky_config_runpod.yaml"

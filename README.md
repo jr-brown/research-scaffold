@@ -29,8 +29,11 @@ instance:
   commit:                                 # paths to commit/push after run
     - "outputs/**"
   git_commit: "abc123def"                # optional: pin to a specific commit (detaches HEAD)
+  managed: true                          # optional: fire-and-forget via SkyPilot managed jobs
 ```
 
 If `git_commit` is specified, the remote checks out that exact commit via a `GIT_COMMIT` environment variable injected into the SkyPilot task. If omitted, the remote stays on its current branch (allowing pushes).
+
+**Managed jobs** (`managed: true`) use SkyPilot's jobs controller for fire-and-forget execution with automatic teardown. Standard jobs (`managed: false`, default) block until the cluster is UP. Use managed jobs when submitting many experiments at once via meta-configs.
 
 See `example/` for more.

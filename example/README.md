@@ -23,6 +23,11 @@ Set `export SKY_PATH="example/sky_config.yaml"` before running:
 - **Remote config** → `uv run python main.py -c basic/with_remote_env.yaml`
 - **Remote sweep** → `uv run python main.py -s sweeps/sweep_configs/remote_sweep.yaml`
 
+### Managed Jobs (Fire-and-Forget)
+- **Managed meta-config (RunPod)** → `uv run python main.py -m remote_test/test_managed_meta.yaml`
+
+Managed jobs use `managed: true` in the instance config. They submit to SkyPilot's jobs controller and return immediately. Monitor with `sky jobs queue`, view logs with `sky jobs logs <name>`.
+
 ## CLI Options
 
 - `-c` config - Single experiment
