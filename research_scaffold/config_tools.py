@@ -124,6 +124,20 @@ def load_config(config_path_or_dict: ConfigInput) -> Config:
     return Config(**config_dict)
 
 
+def resolve_config_dict(config_path_or_dict: ConfigInput) -> StringKeyDict:
+    """Load a config dict, automatically resolving meta-configs that produce exactly 1 config."""
+    config_dict = load_config_dict(config_path_or_dict)
+    if "experiments" not in config_dict:
+        return config_dict
+    meta_config = load_meta_config(config_dict)
+    configs = process_meta_config(meta_config)
+    if len(configs) != 1:
+        raise ValueError(
+            f"Meta-config used as base must produce exactly 1 config, got {len(configs)}."
+        )
+    return {k: v for k, v in configs[0].d.items() if v is not None}
+
+
 def load_and_compose_config_steps(
     cfg_paths: list[ConfigInput],
     compositions: Optional[dict[str, Callable]] = None,
@@ -133,7 +147,7 @@ def load_and_compose_config_steps(
     config_dict = {}
 
     for cfg_path in cfg_paths:
-        partial_config_dict = load_config_dict(cfg_path)
+        partial_config_dict = resolve_config_dict(cfg_path)
         config_dict = recursive_dict_update(
             config_dict, partial_config_dict, compositions=compositions
         )
@@ -571,27 +585,7 @@ def execute_sweep_from_dict(
     
     elif base_config_path is not None:
         log.info(f"Loading base config from {base_config_path if isinstance(base_config_path, str) else 'inline dict'}")
-        
-        # Check if it's a meta-config
-        base_dict = load_config_dict(base_config_path)
-        is_meta = "experiments" in base_dict
-        
-        if is_meta:
-            log.info("Base config is a meta-config, processing...")
-            meta_config = load_meta_config(base_config_path)
-            base_configs = process_meta_config(meta_config)
-            
-            # Validate: meta-config must produce exactly ONE config
-            if len(base_configs) != 1:
-                raise ValueError(
-                    f"base_config meta-config must produce exactly 1 config, got {len(base_configs)}. "
-                    f"Meta-configs with config_axes, repeats>1, or multiple experiments cannot be used as sweep base."
-                )
-            
-            base_config = base_configs[0]
-            log.info(f"Meta-config produced single composed config")
-        else:
-            base_config = load_config(base_config_path)
+        base_config = load_config(resolve_config_dict(base_config_path))
     
     else:
         log.info("No base_config specified, using minimal config")
