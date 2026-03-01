@@ -2,3 +2,4 @@ jobs:
   controller:
     resources:
       disk_size: 40
+    auto_down: 10  # Tear down controller after 10 min idle (saves cost on RunPod)
