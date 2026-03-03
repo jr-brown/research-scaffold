@@ -1,0 +1,15 @@
+### Test parallel local execution
+# Two experiments that should run simultaneously when parallel: true
+
+parallel: true
+
+folder: "configs/lennie"
+common_root:
+  - "root.yaml"
+common_patch:
+  - "patch.yaml"
+
+experiments:
+  - config_options:
+      - "level1a.yaml"
+      - "level1b.yaml"
