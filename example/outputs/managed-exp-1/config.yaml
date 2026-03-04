@@ -1,0 +1,11 @@
+function_args: null
+function_kwargs:
+  param_a: hello_from_managed_1
+  param_b: 42
+function_name: example_simple
+name: managed-exp-1
+time_stamp_name: false
+wandb_entity: null
+wandb_group: null
+wandb_project: null
+wandb_tags: null
