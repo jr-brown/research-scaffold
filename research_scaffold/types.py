@@ -103,6 +103,7 @@ class MetaConfig:
     auto_increment_rng_seed: bool
     rng_seed_offset: int
     bonus_dict: Optional[StringKeyDict]
+    parallel: bool = False
 
     @property
     def d(self):
