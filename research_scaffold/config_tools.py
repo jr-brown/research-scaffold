@@ -5,8 +5,9 @@ Tools for loading and executing experiments from config files.
 # Standard Library
 import logging
 import subprocess
+import sys
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing as mp
 from dataclasses import replace
 from os import path, makedirs
 from pprint import pformat
@@ -700,6 +701,14 @@ def execute_sweep(
     execute_sweep_from_dict(function_map, sweep_dict)
 
 
+def _parallel_config_worker(index, config, function_map, config_kwargs, error_queue):
+    """Worker for parallel config execution. Runs in a forked subprocess."""
+    try:
+        execute_from_config(config, function_map=function_map, **config_kwargs)
+    except Exception as e:
+        error_queue.put((index, f"{type(e).__name__}: {e}"))
+
+
 def execute_experiments(
     function_map: FunctionMap,
     config_path: Optional[str] = None,
@@ -759,33 +768,37 @@ def execute_experiments(
         
         # Check if parallel execution applies
         has_remote = any(c.instance is not None for c in configs)
-        use_parallel = meta_config.parallel and len(configs) > 1 and not has_remote
+        use_parallel = meta_config.parallel and len(configs) > 1 and not has_remote and sys.platform != "win32"
 
         if meta_config.parallel and has_remote:
             log.warning(
                 "parallel=True is ignored when remote configs are present — use managed: true for parallel remote execution"
             )
+        if meta_config.parallel and sys.platform == "win32":
+            log.warning("parallel=True requires fork — falling back to sequential on Windows")
 
         # Execute configs
         if use_parallel:
             log.info(f"Executing {len(configs)} configs in parallel")
-            first_error = None
-            with ThreadPoolExecutor(max_workers=len(configs)) as pool:
-                futures = {
-                    pool.submit(execute_from_config, config, function_map=function_map, **config.d): i
-                    for i, config in enumerate(configs)
-                }
-                for future in as_completed(futures):
-                    i = futures[future]
-                    try:
-                        future.result()
-                        log.info(f"Config {i+1}/{len(configs)} completed")
-                    except Exception as e:
-                        log.error(f"Config {i+1}/{len(configs)} failed: {e}")
-                        if first_error is None:
-                            first_error = e
-            if first_error is not None:
-                raise first_error
+            ctx = mp.get_context("fork")
+            error_queue = ctx.Queue()
+            processes = []
+            for i, config in enumerate(configs):
+                p = ctx.Process(
+                    target=_parallel_config_worker,
+                    args=(i, config, function_map, config.d, error_queue),
+                )
+                processes.append(p)
+                p.start()
+            for i, p in enumerate(processes):
+                p.join()
+                log.info(f"Config {i+1}/{len(configs)} {'completed' if p.exitcode == 0 else 'failed'}")
+            errors = []
+            while not error_queue.empty():
+                errors.append(error_queue.get_nowait())
+            if errors:
+                idx, msg = errors[0]
+                raise RuntimeError(f"Config {idx+1}/{len(configs)} failed: {msg}")
         else:
             for i, config in enumerate(configs):
                 log.info(f"Executing config {i+1}/{len(configs)}")
