@@ -1,5 +1,6 @@
 """Test meta-config functionality"""
 
+import json
 import os
 import threading
 import pytest
@@ -125,14 +126,11 @@ def test_execute_meta_config_full(mock_git):
         os.chdir(old_cwd)
 
 
-def test_parallel_execution(mock_git):
-    """Test that parallel=True runs experiments on different threads"""
-    thread_ids = []
-    barrier = threading.Barrier(2, timeout=5)
+def test_parallel_execution(mock_git, tmp_path):
+    """Test that parallel=True runs experiments in different processes"""
 
     def test_fn(**kwargs):
-        thread_ids.append(threading.current_thread().ident)
-        barrier.wait()  # force both threads to be alive simultaneously
+        (tmp_path / f"pid_{os.getpid()}").write_text("done")
 
     function_map = {"example_multi_arg_config": test_fn}
 
@@ -148,8 +146,10 @@ def test_parallel_execution(mock_git):
             meta_config_path="meta_configs/parallel_test.yaml",
         )
 
-        assert len(thread_ids) == 2
-        assert thread_ids[0] != thread_ids[1]
+        pid_files = list(tmp_path.glob("pid_*"))
+        assert len(pid_files) == 2
+        pids = {f.name for f in pid_files}
+        assert len(pids) == 2  # two different PIDs
     finally:
         os.chdir(old_cwd)
 
@@ -181,14 +181,11 @@ def test_sequential_execution_without_parallel(mock_git):
         os.chdir(old_cwd)
 
 
-def test_parallel_error_propagation(mock_git):
+def test_parallel_error_propagation(mock_git, tmp_path):
     """Test that if one parallel experiment fails, the other still runs and the error is re-raised"""
-    call_tracker = []
-    barrier = threading.Barrier(2, timeout=5)
 
     def test_fn(**kwargs):
-        call_tracker.append(kwargs.get("arg1"))
-        barrier.wait()
+        (tmp_path / f"pid_{os.getpid()}").write_text(kwargs.get("arg1", ""))
         if kwargs.get("arg1") == "read from level1a.yaml":
             raise ValueError("intentional failure")
 
@@ -198,29 +195,29 @@ def test_parallel_error_propagation(mock_git):
     try:
         os.chdir(TEST_DIR)
 
-        with pytest.raises(ValueError, match="intentional failure"):
+        with pytest.raises(RuntimeError, match="intentional failure"):
             execute_experiments(
                 function_map=function_map,
                 meta_config_path="meta_configs/parallel_test.yaml",
             )
 
-        assert len(call_tracker) == 2
+        # Both processes should have started
+        assert len(list(tmp_path.glob("pid_*"))) == 2
     finally:
         os.chdir(old_cwd)
 
 
-def test_parallel_same_results_as_sequential(mock_git):
+def test_parallel_same_results_as_sequential(mock_git, tmp_path):
     """Test that parallel execution produces the same function calls as sequential"""
     from research_scaffold.config_tools import execute_from_config
 
     sequential_kwargs = []
-    parallel_kwargs = []
 
     def seq_fn(**kwargs):
         sequential_kwargs.append(kwargs)
 
     def par_fn(**kwargs):
-        parallel_kwargs.append(kwargs)
+        (tmp_path / f"kwargs_{os.getpid()}.json").write_text(json.dumps(kwargs))
 
     old_cwd = os.getcwd()
     try:
@@ -238,6 +235,7 @@ def test_parallel_same_results_as_sequential(mock_git):
             meta_config_path="meta_configs/parallel_test.yaml",
         )
 
+        parallel_kwargs = [json.loads(f.read_text()) for f in sorted(tmp_path.glob("kwargs_*.json"))]
         assert len(sequential_kwargs) == len(parallel_kwargs)
         # Sort both by a stable key since parallel order is nondeterministic
         seq_sorted = sorted(sequential_kwargs, key=lambda d: d.get("arg1", ""))
