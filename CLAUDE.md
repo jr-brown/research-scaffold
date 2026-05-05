@@ -53,11 +53,18 @@ experiments:
 ```
 
 ### Placeholders
-- `RUN_NAME`: Replaced with experiment name
-- `RUN_GROUP`: Replaced with wandb group
+- `RUN_NAME`: Replaced with experiment name (timestamped if `time_stamp_name: true`)
+- `RUN_GROUP`: Replaced with wandb group (timestamped if `time_stamp_group: true`)
 - `SWEEP_NAME`: Replaced with sweep name
 
-Used in paths like `log_file_path: "outputs/RUN_NAME/output.log"`
+Used in paths like `log_file_path: "outputs/RUN_GROUP/output.log"`
+
+`time_stamp_group: true` appends a timestamp to the group name, useful for creating unique output directories per run group:
+```yaml
+wandb_group: "my_experiment"
+time_stamp_group: true
+log_file_path: "outputs/RUN_GROUP/output.log"  # → outputs/my_experiment_2025-01-15_14-30-22/output.log
+```
 
 ### Function Map Pattern
 

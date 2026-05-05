@@ -237,6 +237,7 @@ def execute_from_config(
     function_kwargs: Optional[StringKeyDict] = None,
     name: str = "unamed",
     time_stamp_name: bool = False,
+    time_stamp_group: bool = False,
     wandb_project: Optional[str] = None,
     wandb_group: Optional[str] = None,
     wandb_entity: Optional[str] = None,
@@ -257,6 +258,7 @@ def execute_from_config(
     resolved_names = resolve_run_names(
         name=name,
         time_stamp_name=time_stamp_name,
+        time_stamp_group=time_stamp_group,
         wandb_group=wandb_group,
         sweep_name=sweep_name,
     )

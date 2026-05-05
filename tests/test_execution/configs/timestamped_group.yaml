@@ -1,0 +1,7 @@
+name: "ts_group_test"
+time_stamp_group: true
+wandb_group: "my_group"
+function_name: "example_simple_config"
+
+function_kwargs:
+  output_dir: "outputs/RUN_GROUP/results"

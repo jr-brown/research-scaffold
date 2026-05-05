@@ -178,6 +178,7 @@ def load_config_dict(config_path_or_dict: dict | str) -> dict[str, Any]:
 def resolve_run_names(
     name: str,
     time_stamp_name: bool = False,
+    time_stamp_group: bool = False,
     wandb_group: Optional[str] = None,
     sweep_name: Optional[str] = None,
 ) -> dict[str, str]:
@@ -187,6 +188,9 @@ def resolve_run_names(
     """
     name_base = name
     group = wandb_group if wandb_group is not None else name_base
+
+    if time_stamp_group:
+        group = f"{group}_{get_time_stamp(include_seconds=True)}"
 
     if time_stamp_name:
         name = f"{name}_{get_time_stamp(include_seconds=True)}"

@@ -36,6 +36,7 @@ class Config:
     function_name: str
     # Fields with defaults
     time_stamp_name: Optional[bool] = False
+    time_stamp_group: Optional[bool] = False
     function_kwargs: Optional[StringKeyDict] = None
     function_args: Optional[list] = None
     log_file_path: Optional[str] = None
