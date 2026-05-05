@@ -181,16 +181,20 @@ def resolve_run_names(
     time_stamp_group: bool = False,
     wandb_group: Optional[str] = None,
     sweep_name: Optional[str] = None,
+    launch_time_stamp: Optional[str] = None,
 ) -> dict[str, str]:
     """Resolve the run name, group, and sweep name for an experiment.
 
     Returns a dict with keys: name, name_base, group, sweep_name.
+    If launch_time_stamp is provided it is used for group timestamps instead
+    of generating a new one, so all configs in a batch share the same stamp.
     """
     name_base = name
     group = wandb_group if wandb_group is not None else name_base
 
     if time_stamp_group:
-        group = f"{group}_{get_time_stamp(include_seconds=True)}"
+        stamp = launch_time_stamp or get_time_stamp(include_seconds=True)
+        group = f"{group}_{stamp}"
 
     if time_stamp_name:
         name = f"{name}_{get_time_stamp(include_seconds=True)}"

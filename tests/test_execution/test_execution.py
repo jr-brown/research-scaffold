@@ -112,3 +112,46 @@ def test_execute_with_time_stamp_group(mock_git):
     assert output_dir.startswith("outputs/my_group_")
     assert TIMESTAMP_RE.search(output_dir.split("/")[1])
 
+
+def test_resolve_run_names_uses_launch_time_stamp():
+    result = resolve_run_names(name="exp", time_stamp_group=True, launch_time_stamp="2025-01-01_00-00-00")
+    assert result["group"] == "exp_2025-01-01_00-00-00"
+
+
+def test_meta_config_shared_group_timestamp(mock_git, tmp_path):
+    """All configs from a meta-config share the same group timestamp."""
+    import time
+
+    call_tracker = []
+
+    def test_fn(**kwargs):
+        time.sleep(0.1)
+        call_tracker.append(kwargs)
+
+    # Write two simple base configs
+    for name in ("a", "b"):
+        (tmp_path / f"{name}.yaml").write_text(
+            f"name: '{name}'\n"
+            "function_name: test_fn\n"
+            "time_stamp_group: true\n"
+            "wandb_group: shared\n"
+            "function_kwargs:\n"
+            "  out: 'results/RUN_GROUP/data'\n"
+        )
+
+    # Write a meta-config that runs both
+    (tmp_path / "meta.yaml").write_text(
+        "experiments:\n"
+        "  - config_axes:\n"
+        f"    - ['{tmp_path}/a.yaml', '{tmp_path}/b.yaml']\n"
+    )
+
+    execute_experiments(
+        function_map={"test_fn": test_fn},
+        meta_config_path=str(tmp_path / "meta.yaml"),
+    )
+
+    assert len(call_tracker) == 2
+    groups = [c["out"].split("/")[1] for c in call_tracker]
+    assert groups[0] == groups[1]
+

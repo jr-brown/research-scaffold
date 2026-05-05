@@ -52,6 +52,7 @@ from .types import (
 from .util import (
     is_main_process,
     get_logger,
+    get_time_stamp,
     nones_to_empty_lists,
     nones_to_empty_dicts,
     recursive_dict_update,
@@ -249,6 +250,7 @@ def execute_from_config(
     sweep_name: Optional[str] = None,
     sweep_name_dummy: str = "SWEEP_NAME",
     instance: Optional[InstanceConfig] = None,
+    launch_time_stamp: Optional[str] = None,
 ):
     """
     Executes a function from a Config object.
@@ -261,6 +263,7 @@ def execute_from_config(
         time_stamp_group=time_stamp_group,
         wandb_group=wandb_group,
         sweep_name=sweep_name,
+        launch_time_stamp=launch_time_stamp,
     )
     name = resolved_names["name"]
     group = resolved_names["group"]
@@ -703,10 +706,10 @@ def execute_sweep(
     execute_sweep_from_dict(function_map, sweep_dict)
 
 
-def _parallel_config_worker(index, config, function_map, config_kwargs, error_queue):
+def _parallel_config_worker(index, config, function_map, config_kwargs, launch_time_stamp, error_queue):
     """Worker for parallel config execution. Runs in a forked subprocess."""
     try:
-        execute_from_config(config, function_map=function_map, **config_kwargs)
+        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config_kwargs)
     except Exception as e:
         error_queue.put((index, f"{type(e).__name__}: {e}"))
 
@@ -721,6 +724,9 @@ def execute_experiments(
 
     git_commit_hash = get_git_commit_hash()
     log.info(f"Executing experiment, {git_commit_hash=}")
+
+    # Capture a single timestamp at launch so all configs in a batch share it
+    launch_time_stamp = get_time_stamp(include_seconds=True)
 
     # Check that only one execution mode is specified
     specified_modes = sum([
@@ -788,7 +794,7 @@ def execute_experiments(
             for i, config in enumerate(configs):
                 p = ctx.Process(
                     target=_parallel_config_worker,
-                    args=(i, config, function_map, config.d, error_queue),
+                    args=(i, config, function_map, config.d, launch_time_stamp, error_queue),
                 )
                 processes.append(p)
                 p.start()
@@ -804,7 +810,7 @@ def execute_experiments(
         else:
             for i, config in enumerate(configs):
                 log.info(f"Executing config {i+1}/{len(configs)}")
-                execute_from_config(config, function_map=function_map, **config.d)
+                execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config.d)
 
         # Execute sweep experiments (always sequential)
         for i, sweep_exp in enumerate(sweep_experiments):
@@ -830,4 +836,4 @@ def execute_experiments(
 
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")
-        execute_from_config(config, function_map=function_map, **config.d)
+        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config.d)
