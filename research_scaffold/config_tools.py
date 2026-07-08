@@ -13,7 +13,6 @@ from os import path, makedirs
 from pprint import pformat
 from typing import Optional
 from collections.abc import Callable
-from functools import partial
 
 # Third Party
 import gc
@@ -72,33 +71,14 @@ log = get_logger(__name__)
 
 def detect_config_type(config_dict: StringKeyDict) -> str:
     """
-    Detect config type by trying to instantiate each dataclass.
+    Detect config type from its characteristic keys.
     Returns "single", "meta", or "sweep".
     """
-    # Try MetaConfig
-    try:
-        load_meta_config(config_dict)
+    if "experiments" in config_dict or "base" in config_dict:
         return "meta"
-    except Exception:
-        pass
-    
-    # Try SweepConfig  
-    try:
-        load_sweep_config(config_dict)
+    if "method" in config_dict and "parameters" in config_dict:
         return "sweep"
-    except Exception:
-        pass
-    
-    # Try Config
-    try:
-        _ = load_config(config_dict)
-        return "single"
-    except Exception:
-        pass
-    
-    raise ValueError(
-        f"Could not identify config type. Got keys: {list(config_dict.keys())}"
-    )
+    return "single"
 
 
 def get_git_commit_hash() -> str | None:
@@ -121,7 +101,7 @@ def load_dict_from_yaml(yaml_path: str) -> StringKeyDict:
 
 def load_config(config_path_or_dict: ConfigInput) -> Config:
     """Loads a config from corresponding file path (including .yaml extension)."""
-    config_dict = load_config_dict(config_path_or_dict)
+    config_dict = dict(load_config_dict(config_path_or_dict))
     if 'instance' in config_dict and isinstance(config_dict['instance'], dict):
         config_dict['instance'] = InstanceConfig(**config_dict['instance'])
     return Config(**config_dict)
@@ -171,9 +151,11 @@ def parse_experiment_set(set_specific_dict: StringKeyDict) -> ExperimentSpec:
     if "sweep_config" in set_specific_dict:
         # Validate sweep experiment format
         allowed_keys = ["sweep_config", "base_config", "sweep_count"]
-        assert set_specific_dict.keys() <= set(allowed_keys), \
-            f"Sweep experiment has invalid keys: {set_specific_dict.keys() - set(allowed_keys)}"
-        
+        if not set_specific_dict.keys() <= set(allowed_keys):
+            raise ValueError(
+                f"Sweep experiment has invalid keys: {set_specific_dict.keys() - set(allowed_keys)}"
+            )
+
         return SweepExperimentSpec(
             sweep_config=set_specific_dict["sweep_config"],
             base_config=set_specific_dict.get("base_config", None),
@@ -183,11 +165,15 @@ def parse_experiment_set(set_specific_dict: StringKeyDict) -> ExperimentSpec:
     # Otherwise, it's a regular product experiment
     # check that only one of the single format options is present
     axes_info_formats = ["config_axes", "config_options", "config_steps", "config"]
-    assert sum([key in set_specific_dict for key in axes_info_formats]) == 1
-    # check that no other keys are present apart from those in the ProductExperimentSpec class
-    assert set_specific_dict.keys() <= set(
-        axes_info_formats + ["repeats", "expt_root", "expt_patch"]
-    )
+    if sum([key in set_specific_dict for key in axes_info_formats]) != 1:
+        raise ValueError(
+            f"Experiment must have exactly one of {axes_info_formats}, got keys: {list(set_specific_dict.keys())}"
+        )
+    allowed_keys = set(axes_info_formats + ["repeats", "expt_root", "expt_patch"])
+    if not set_specific_dict.keys() <= allowed_keys:
+        raise ValueError(
+            f"Experiment has invalid keys: {set_specific_dict.keys() - allowed_keys}"
+        )
 
     if "config_axes" in set_specific_dict:
         axes = set_specific_dict["config_axes"]
@@ -224,32 +210,16 @@ def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
 
 def load_sweep_config(sweep_cfg_path: ConfigInput) -> SweepConfig:
     """Loads a sweep config from path or inline dict (including .yaml extension if path)."""
-    sc_dict = load_config_dict(sweep_cfg_path)
+    sc_dict = dict(load_config_dict(sweep_cfg_path))
     if 'instance' in sc_dict and isinstance(sc_dict['instance'], dict):
         sc_dict['instance'] = InstanceConfig(**sc_dict['instance'])
     return SweepConfig(**sc_dict)
 
 
 def execute_from_config(
-    config: Config,  # Entire config is separately input to easily log it to wandb
+    config: Config,
     function_map: FunctionMap,
-    function_name: str,
-    function_args: Optional[list] = None,
-    function_kwargs: Optional[StringKeyDict] = None,
-    name: str = "unamed",
-    time_stamp_name: bool = False,
-    time_stamp_group: bool = False,
-    wandb_project: Optional[str] = None,
-    wandb_group: Optional[str] = None,
-    wandb_entity: Optional[str] = None,
-    wandb_tags: Optional[list[str]] = None,
-    log_file_path: Optional[str] = None,
-    save_config_path: Optional[str] = None,
-    run_name_dummy: str = "RUN_NAME",
-    run_group_dummy: str = "RUN_GROUP",
     sweep_name: Optional[str] = None,
-    sweep_name_dummy: str = "SWEEP_NAME",
-    instance: Optional[InstanceConfig] = None,
     launch_time_stamp: Optional[str] = None,
 ):
     """
@@ -258,34 +228,32 @@ def execute_from_config(
 
     # Resolve names BEFORE dispatching to remote so timestamps are consistent
     resolved_names = resolve_run_names(
-        name=name,
-        time_stamp_name=time_stamp_name,
-        time_stamp_group=time_stamp_group,
-        wandb_group=wandb_group,
+        name=config.name,
+        time_stamp_name=config.time_stamp_name,
+        time_stamp_group=config.time_stamp_group,
+        wandb_group=config.wandb_group,
         sweep_name=sweep_name,
         launch_time_stamp=launch_time_stamp,
     )
     name = resolved_names["name"]
     group = resolved_names["group"]
 
-    if instance is not None:
+    if config.instance is not None:
+        instance = config.instance
         config.instance = None
         config.name = name
         config.time_stamp_name = False
+        config.wandb_group = group
+        config.time_stamp_group = False
         execute_config_remotely(instance, config, resolved_names)
         return
 
     def _sub(value):
-        return substitute_placeholders(
-            value, resolved_names,
-            run_name_dummy=run_name_dummy,
-            run_group_dummy=run_group_dummy,
-            sweep_name_dummy=sweep_name_dummy,
-        )
+        return substitute_placeholders(value, resolved_names)
 
     # Add handler to log to file if necessary
-    if log_file_path is not None:
-        log_file_path = _sub(log_file_path)
+    if config.log_file_path is not None:
+        log_file_path = _sub(config.log_file_path)
 
         log_dir = path.dirname(log_file_path)
 
@@ -295,70 +263,73 @@ def execute_from_config(
         root_logger = logging.getLogger()
         file_handler = logging.FileHandler(log_file_path)
         file_handler.setLevel(root_logger.level)
-        file_handler.setFormatter(root_logger.handlers[0].formatter)
+        if root_logger.handlers:
+            file_handler.setFormatter(root_logger.handlers[0].formatter)
         root_logger.addHandler(file_handler)
-        file_log_cleanup_fn = lambda: root_logger.removeHandler(file_handler)
 
     else:
-        file_log_cleanup_fn = None
+        log_file_path = None
+        file_handler = None
 
-    log.info("========== Config Dict ===========\n" + pformat(config))
-    log.info("Run Name: " + pformat(name))
+    try:
+        log.info("========== Config Dict ===========\n" + pformat(config))
+        log.info("Run Name: " + pformat(name))
 
-    (function_args,) = nones_to_empty_lists(function_args)
-    (function_kwargs,) = nones_to_empty_dicts(function_kwargs)
+        (function_args,) = nones_to_empty_lists(config.function_args)
+        (function_kwargs,) = nones_to_empty_dicts(config.function_kwargs)
 
-    # Substitute occurrences of RUN_NAME, RUN_GROUP, and SWEEP_NAME
-    function_args = _sub(function_args)
-    function_kwargs = _sub(function_kwargs)
+        # Substitute occurrences of RUN_NAME, RUN_GROUP, and SWEEP_NAME
+        function_args = _sub(function_args)
+        function_kwargs = _sub(function_kwargs)
 
-    # Save config to file if requested
-    if save_config_path is not None:
-        save_config_path_sub = _sub(save_config_path)
+        # Save config to file if requested
+        if config.save_config_path is not None:
+            save_config_path_sub = _sub(config.save_config_path)
 
-        # Create a dict with the full config including substituted values
-        config_to_save = {
-            "name": name,
-            "function_name": function_name,
-            "function_args": function_args,
-            "function_kwargs": function_kwargs,
-            "wandb_project": wandb_project,
-            "wandb_entity": wandb_entity,
-            "wandb_group": wandb_group,
-            "wandb_tags": wandb_tags,
-            "log_file_path": log_file_path,
-            "save_config_path": save_config_path_sub,
-        }
+            # Create a dict with the full config including substituted values
+            config_to_save = {
+                "name": name,
+                "function_name": config.function_name,
+                "function_args": function_args,
+                "function_kwargs": function_kwargs,
+                "wandb_project": config.wandb_project,
+                "wandb_entity": config.wandb_entity,
+                "wandb_group": config.wandb_group,
+                "wandb_tags": config.wandb_tags,
+                "log_file_path": log_file_path,
+                "save_config_path": save_config_path_sub,
+            }
 
-        try:
-            save("yaml", config_to_save, save_config_path_sub, overwrite=True)
-            log.info(f"Saved config to: {save_config_path_sub}")
-        except Exception as e:
-            log.warning(f"Failed to save config to {save_config_path_sub}: {e}")
+            try:
+                save("yaml", config_to_save, save_config_path_sub, overwrite=True)
+                log.info(f"Saved config to: {save_config_path_sub}")
+            except Exception as e:
+                log.warning(f"Failed to save config to {save_config_path_sub}: {e}")
 
-    if wandb_project is not None and is_main_process:
-        with wandb.init(
-            entity=wandb_entity,
-            project=wandb_project,
-            tags=wandb_tags,
-            name=name,
-            group=group,
-            config=function_kwargs,
-        ):  # type: ignore
-            function_map[function_name](*function_args, **function_kwargs)
+        if config.wandb_project is not None and is_main_process:
+            with wandb.init(
+                entity=config.wandb_entity,
+                project=config.wandb_project,
+                tags=config.wandb_tags,
+                name=name,
+                group=group,
+                config=function_kwargs,
+            ):  # type: ignore
+                function_map[config.function_name](*function_args, **function_kwargs)
 
-    else:
-        function_map[function_name](*function_args, **function_kwargs)
+        else:
+            function_map[config.function_name](*function_args, **function_kwargs)
 
-    if has_jax:
-        jax.clear_caches()
+        if has_jax:
+            jax.clear_caches()
 
-    if has_torch and torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+        if has_torch and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
 
-    if file_log_cleanup_fn is not None:
-        file_log_cleanup_fn()
+    finally:
+        if file_handler is not None:
+            logging.getLogger().removeHandler(file_handler)
 
 
 def combine_root_tgt_patch(
@@ -449,7 +420,7 @@ def process_product_experiment_spec(
                 full_path_sequence,
                 compositions={
                     "name": lambda x, y: f"{x}_{y}",
-                    "wandb_tags": lambda x, y: x + y,  # string concatenation
+                    "wandb_tags": lambda x, y: x + y,  # list concatenation
                 },
                 bonus_dict=bonus_dict,
             )
@@ -520,23 +491,21 @@ def process_sweep_experiment_spec(
         if sweep_spec.base_config is not None and folder and not path.isabs(base_config_path):
             base_config_path = path.join(folder, base_config_path)
         
-        # Apply common_root and common_patch
-        if common_root or common_patch:
-            # Combine root, target, and patch into list of paths
-            base_paths = combine_root_tgt_patch(base_config_path, common_root, common_patch)
-            
+        # Apply common_root, common_patch, and bonus_dict
+        base_paths = combine_root_tgt_patch(base_config_path, common_root, common_patch)
+        if bonus_dict:
+            base_paths = base_paths + [bonus_dict]
+
+        if len(base_paths) > 1:
             # Store as list - execute_sweep_from_dict will handle composition
             sweep_dict["base_config_paths"] = base_paths
         else:
             sweep_dict["base_config"] = base_config_path
-    
+
     # Override sweep_count if specified in meta-config
     if sweep_spec.sweep_count is not None:
         sweep_dict["sweep_count"] = sweep_spec.sweep_count
-    
-    # Note: bonus_dict could be merged into base_config here if needed
-    # For now, we don't apply bonus_dict to sweeps
-    
+
     return sweep_dict
 
 
@@ -584,6 +553,7 @@ def execute_sweep_from_dict(
     base_config_paths = sweep_dict.pop("base_config_paths", None)
     sweep_count = sweep_dict.pop("sweep_count", None)
     sweep_name = sweep_dict.pop("sweep_name", None)
+    function_name = sweep_dict.pop("function_name", None)
     
     # Load base config if specified, otherwise create minimal config
     if base_config_paths is not None:
@@ -600,7 +570,7 @@ def execute_sweep_from_dict(
         # Create a minimal config - user must specify function_name in sweep or base
         base_config = Config(
             name="sweep_run",
-            function_name=sweep_dict.get("function_name", ""),
+            function_name=function_name or "",
         )
     
     # Extract wandb project/entity from sweep config or base config
@@ -648,31 +618,27 @@ def execute_sweep_from_dict(
             log.info(f"Sweep params: {pformat(sweep_params)}")
             
             # Merge sweep params with base config's kwargs (sweep params override)
-            # Use recursive merge to handle nested parameters properly
+            # Use recursive merge to handle nested parameters properly.
+            # No type check: sweep params may legitimately differ in type from base values.
             merged_kwargs = recursive_dict_update(
                 base_config.function_kwargs or {},
-                sweep_params
+                sweep_params,
+                assert_type_match=False,
             )
-            
-            # Create a copy of base_config with the merged kwargs so logging shows actual values
-            run_config = replace(base_config, function_kwargs=merged_kwargs)
             
             # Execute using execute_from_config with wandb disabled (already initialized above)
             # This gives us RUN_NAME, RUN_GROUP, SWEEP_NAME substitution + log file handling
-            execute_from_config(
-                config=run_config,
-                function_map=function_map,
-                function_name=run_config.function_name,
-                function_args=run_config.function_args,
+            run_config = replace(
+                base_config,
                 function_kwargs=merged_kwargs,
                 name=wandb_run_name,  # Use wandb's auto-generated name
                 time_stamp_name=False,  # Already has timestamp from wandb
+                time_stamp_group=False,
                 wandb_project=None,  # Skip wandb.init (already initialized above)
-                wandb_group=base_config.wandb_group,
-                wandb_entity=base_config.wandb_entity,
-                wandb_tags=base_config.wandb_tags,
-                log_file_path=base_config.log_file_path,
-                save_config_path=base_config.save_config_path,
+            )
+            execute_from_config(
+                config=run_config,
+                function_map=function_map,
                 sweep_name=sweep_name,  # For SWEEP_NAME substitution
             )
         
@@ -706,10 +672,10 @@ def execute_sweep(
     execute_sweep_from_dict(function_map, sweep_dict)
 
 
-def _parallel_config_worker(index, config, function_map, config_kwargs, launch_time_stamp, error_queue):
+def _parallel_config_worker(index, config, function_map, launch_time_stamp, error_queue):
     """Worker for parallel config execution. Runs in a forked subprocess."""
     try:
-        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config_kwargs)
+        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
     except Exception as e:
         error_queue.put((index, f"{type(e).__name__}: {e}"))
 
@@ -794,23 +760,25 @@ def execute_experiments(
             for i, config in enumerate(configs):
                 p = ctx.Process(
                     target=_parallel_config_worker,
-                    args=(i, config, function_map, config.d, launch_time_stamp, error_queue),
+                    args=(i, config, function_map, launch_time_stamp, error_queue),
                 )
                 processes.append(p)
                 p.start()
             for i, p in enumerate(processes):
                 p.join()
                 log.info(f"Config {i+1}/{len(configs)} {'completed' if p.exitcode == 0 else 'failed'}")
-            errors = []
+            # Hard crashes (OOM kill, segfault) leave the queue empty but exit nonzero
+            failures = {i: f"exit code {p.exitcode}" for i, p in enumerate(processes) if p.exitcode != 0}
             while not error_queue.empty():
-                errors.append(error_queue.get_nowait())
-            if errors:
-                idx, msg = errors[0]
-                raise RuntimeError(f"Config {idx+1}/{len(configs)} failed: {msg}")
+                idx, msg = error_queue.get_nowait()
+                failures[idx] = msg
+            if failures:
+                idx = min(failures)
+                raise RuntimeError(f"Config {idx+1}/{len(configs)} failed: {failures[idx]}")
         else:
             for i, config in enumerate(configs):
                 log.info(f"Executing config {i+1}/{len(configs)}")
-                execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config.d)
+                execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
 
         # Execute sweep experiments (always sequential)
         for i, sweep_exp in enumerate(sweep_experiments):
@@ -836,4 +804,4 @@ def execute_experiments(
 
     for i, config in enumerate(configs):
         log.info(f"Executing config {i+1}/{len(configs)}")
-        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp, **config.d)
+        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)

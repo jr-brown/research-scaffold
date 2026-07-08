@@ -45,7 +45,6 @@ def test_execute_from_config_calls_function(mock_git):
     execute_from_config(
         config=config,
         function_map={"my_func": my_func},
-        **config.d
     )
     
     assert len(call_tracker) == 1

@@ -227,7 +227,7 @@ def test_parallel_same_results_as_sequential(mock_git, tmp_path):
         meta = load_meta_config("meta_configs/parallel_test.yaml")
         configs = process_meta_config(meta)
         for config in configs:
-            execute_from_config(config, function_map={"example_multi_arg_config": seq_fn}, **config.d)
+            execute_from_config(config, function_map={"example_multi_arg_config": seq_fn})
 
         # Parallel via execute_experiments
         execute_experiments(

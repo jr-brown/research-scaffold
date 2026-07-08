@@ -98,15 +98,16 @@ def transform(
     file_path = _write_to_path_preprocess(file_path, suffix, overwrite=True)
     lock_path = f"{file_path}.lock"
 
-    # Wait until no-one else has lock on file
-    while path.exists(lock_path):
-        log.info(f"{file_path} in use, waiting 1-5s...")
-        sleep(uniform(1, 5))
-
-    # Create lock on file, and then make sure nearly all execution paths will end up removing lock
-    with open(lock_path, "w", encoding="utf-8") as f:
-        # Lennie allowed copilot to add utf-8 to satisfy pylint; need to check no problems
-        f.write("")
+    # Atomically acquire lock on file ('x' fails if the lock already exists),
+    # then make sure nearly all execution paths will end up removing lock
+    while True:
+        try:
+            with open(lock_path, "x", encoding="utf-8"):
+                pass
+            break
+        except FileExistsError:
+            log.info(f"{file_path} in use, waiting 1-5s...")
+            sleep(uniform(1, 5))
 
     using_default_data = False
 

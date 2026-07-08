@@ -12,7 +12,7 @@ import git
 import sky
 
 from .types import Config, InstanceConfig
-from .util import get_logger, load_config_dict, deep_update, substitute_placeholders
+from .util import get_logger, load_config_dict, recursive_dict_update, substitute_placeholders
 
 log = get_logger(__name__)
 
@@ -250,7 +250,7 @@ from research_scaffold.types import Config
 from main import function_map
 
 config = Config(**config_dict)
-execute_from_config(config, function_map=function_map, **config_dict)
+execute_from_config(config, function_map=function_map)
 " """)
     
     # Commit and push results if requested
@@ -392,7 +392,7 @@ def _build_sky_task(
     if instance_config.patch:
         log.info("Applying Sky config patch")
         patch_dict = load_config_dict(instance_config.patch)
-        sky_config = deep_update(sky_config, patch_dict)
+        sky_config = recursive_dict_update(sky_config, patch_dict, assert_type_match=False)
 
     sky_config['workdir'] = repo_root
 
