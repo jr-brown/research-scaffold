@@ -4,6 +4,7 @@ from pathlib import Path
 from research_scaffold.config_tools import (
     load_config,
     load_and_compose_config_steps,
+    load_meta_config,
 )
 
 
@@ -36,4 +37,17 @@ def test_compose_config_steps():
     # Check merging happened
     assert "root_arg" in config.function_kwargs
     assert "arg1" in config.function_kwargs
+
+
+def test_meta_config_base():
+    mc = load_meta_config({
+        "base": str(TEST_DIR / "configs/base_meta.yaml"),
+        "folder": "debug_configs",
+        "bonus_dict": {"function_kwargs": {"n_eval": 2}},
+    })
+
+    assert mc.folder == "debug_configs"
+    assert mc.bonus_dict["function_kwargs"]["n_eval"] == 2
+    assert mc.bonus_dict["function_kwargs"]["dataset"] == "full"
+    assert len(mc.experiments) == 1
 

@@ -1,0 +1,7 @@
+folder: "configs"
+bonus_dict:
+  function_kwargs:
+    n_eval: 100
+    dataset: "full"
+experiments:
+  - config: "simple_config.yaml"

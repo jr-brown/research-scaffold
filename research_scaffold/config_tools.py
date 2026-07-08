@@ -141,22 +141,28 @@ def resolve_config_dict(config_path_or_dict: ConfigInput) -> StringKeyDict:
     return {k: v for k, v in configs[0].d.items() if v is not None}
 
 
+def compose_config_dicts(
+    config_dicts: list[StringKeyDict],
+    compositions: Optional[dict[str, Callable]] = None,
+) -> StringKeyDict:
+    """Return single dict from iteratively merging config_dicts (later dicts take precedence)."""
+    config_dict = {}
+    for partial in config_dicts:
+        config_dict = recursive_dict_update(
+            config_dict, partial, compositions=compositions
+        )
+    return config_dict
+
+
 def load_and_compose_config_steps(
     cfg_paths: list[ConfigInput],
     compositions: Optional[dict[str, Callable]] = None,
     bonus_dict: dict = {},
 ) -> Config:
     """Return single config from iteratively combining configs loaded from cfg_paths (paths or inline dicts)."""
-    config_dict = {}
-
-    for cfg_path in cfg_paths:
-        partial_config_dict = resolve_config_dict(cfg_path)
-        config_dict = recursive_dict_update(
-            config_dict, partial_config_dict, compositions=compositions
-        )
-
-    config_dict = recursive_dict_update(
-        config_dict, bonus_dict, compositions=compositions
+    config_dict = compose_config_dicts(
+        [resolve_config_dict(p) for p in cfg_paths] + [bonus_dict],
+        compositions=compositions,
     )
 
     if 'instance' in config_dict and isinstance(config_dict['instance'], dict):
@@ -206,9 +212,20 @@ def parse_experiment_set(set_specific_dict: StringKeyDict) -> ExperimentSpec:
     )
 
 
+def resolve_meta_config_dict(meta_cfg_input: ConfigInput) -> StringKeyDict:
+    """Load a meta config dict, recursively composing any `base` meta configs it builds on."""
+    mc_dict = dict(load_config_dict(meta_cfg_input))
+    base = mc_dict.pop("base", None)
+    if base is None:
+        return mc_dict
+    if isinstance(base, (str, dict)):
+        base = [base]
+    return compose_config_dicts([resolve_meta_config_dict(b) for b in base] + [mc_dict])
+
+
 def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
     """Loads a meta config from path or inline dict (including .yaml extension if path)."""
-    mc_dict = load_config_dict(meta_cfg_path)
+    mc_dict = resolve_meta_config_dict(meta_cfg_path)
     experiments = [parse_experiment_set(specs) for specs in mc_dict["experiments"]]
     return MetaConfig(
         experiments=experiments,
