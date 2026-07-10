@@ -408,7 +408,7 @@ def process_product_experiment_spec(
     # for each sequence of config path stems need to extend with shared configs and folder
     configs = []
     for config_stem_sequence in stem_sequence_options:
-        for _ in range(repeats):
+        for repeat_n in range(repeats):
             stem_sequence_with_common = combine_root_tgt_patch(
                 config_stem_sequence, common_root, common_patch
             )
@@ -424,6 +424,8 @@ def process_product_experiment_spec(
                 },
                 bonus_dict=bonus_dict,
             )
+            if repeats > 1:
+                cfg.name = f"{cfg.name}_r{repeat_n}"
             configs.append(cfg)
 
     return configs
@@ -458,6 +460,14 @@ def process_meta_config(mc: MetaConfig) -> list[Config]:
             )
             if mc.auto_increment_rng_seed:
                 config.function_kwargs["rng_seed"] += i
+
+    names = [config.name for config in configs]
+    duplicates = {n for n in names if names.count(n) > 1}
+    if duplicates:
+        log.warning(
+            f"Meta config produces duplicate config names: {sorted(duplicates)} — "
+            "runs may overwrite each other's RUN_NAME-derived outputs"
+        )
 
     return configs
 

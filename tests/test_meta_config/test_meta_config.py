@@ -244,3 +244,24 @@ def test_parallel_same_results_as_sequential(mock_git, tmp_path):
     finally:
         os.chdir(old_cwd)
 
+
+def test_repeats_get_suffixed_names():
+    """repeats > 1 appends _r<n> so replicate names stay unique"""
+    meta = load_meta_config({
+        "experiments": [{"config": {"name": "exp", "function_name": "f"}, "repeats": 3}],
+    })
+    configs = process_meta_config(meta)
+    assert [c.name for c in configs] == ["exp_r0", "exp_r1", "exp_r2"]
+
+
+def test_duplicate_config_names_warn(caplog):
+    """Two experiments composing to the same name triggers a warning"""
+    meta = load_meta_config({
+        "experiments": [
+            {"config": {"name": "exp", "function_name": "f"}},
+            {"config": {"name": "exp", "function_name": "f"}},
+        ],
+    })
+    configs = process_meta_config(meta)
+    assert len(configs) == 2
+    assert any("duplicate config names" in r.message for r in caplog.records)
