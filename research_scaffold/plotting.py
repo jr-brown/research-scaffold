@@ -9,7 +9,7 @@ from os import path
 from math import floor
 from typing import Optional, Any, Union
 
-from .util import nones_to_empty_dicts, merge_dicts
+from .util import nones_to_empty_dicts, merge_dicts, key_list_get
 from .file_io import load
 
 
@@ -47,24 +47,6 @@ def enforce_str_list(xs: None | str | list) -> Optional[list[str]]:
 
 def multi_enforce_str_lists(*strs_or_lists: None | str | list) -> list[Optional[list[str]]]:
     return [enforce_str_list(x) for x in strs_or_lists]
-
-
-def key_list_get(_dict: dict, keys: list) -> Any:
-    try:
-        if len(keys) == 0:
-            raise Exception("Empty keys")
-
-        elif len(keys) == 1:
-            return _dict[keys[0]]
-
-        else:
-            k = keys[0]
-            next_keys = keys[1:]
-            return key_list_get(_dict[k], next_keys)
-
-    except TypeError as e:
-        log.error(f"TypeError in key_list_get where {keys=} and {_dict=}")
-        raise e
 
 
 def get_plot_data(

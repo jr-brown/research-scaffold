@@ -2,7 +2,6 @@
 Generic Utility Functions
 """
 
-from re import search, subn
 from copy import deepcopy
 from typing import Optional, TypeVar, Any
 from collections.abc import Callable
@@ -39,8 +38,9 @@ def nones_to_empty_dicts(*args: Optional[dict]) -> list[dict]:
 def get_time_stamp(include_seconds: bool = False) -> str:
     """Returns a string with the current date and time.
     This is formatted as 'YYYY-MM-DD_HH-MM' or 'YYYY-MM-DD_HH-MM-SS'"""
-    date = str(datetime.now().date())
-    time = str(datetime.now().time())
+    now = datetime.now()
+    date = str(now.date())
+    time = str(now.time())
 
     if include_seconds:
         time = "-".join(time.split(":")).split(".", maxsplit=1)[0]
@@ -69,11 +69,10 @@ def check_name_sub_general(
         elif isinstance(x, list):
             return [inner(v) for v in x]
 
-        elif isinstance(x, str) and search(run_name_dummy, x):
-            revised_string, extra_count = subn(run_name_dummy, new_name, x)
+        elif isinstance(x, str) and run_name_dummy in x:
             nonlocal count
-            count += extra_count
-            return revised_string
+            count += x.count(run_name_dummy)
+            return x.replace(run_name_dummy, new_name)
 
         else:
             return x
@@ -104,7 +103,9 @@ def recursive_dict_update(
 
         if assert_type_match and (k in base.keys()):
             t1, t2 = type(base[k]), type(v)
-            if t1 != t2 and (not type_match_ignore_nones or (t1 is None or t2 is None)):
+            nones_ok = type_match_ignore_nones and (base[k] is None or v is None)
+            both_numeric = isinstance(base[k], (int, float)) and isinstance(v, (int, float))
+            if t1 != t2 and not nones_ok and not both_numeric:
                 raise ValueError(f"Types do not match for key {k}, {t1} vs {t2}")
 
         if k not in base.keys():
@@ -223,22 +224,3 @@ def substitute_placeholders(
     if resolved_names.get("sweep_name"):
         value, _ = check_name_sub_general(value, new_name=resolved_names["sweep_name"], run_name_dummy=sweep_name_dummy)
     return value
-
-
-def deep_update(base_dict: dict, update_dict: dict) -> dict:
-    """Deep merge update_dict into base_dict.
-    
-    Args:
-        base_dict: Base dictionary
-        update_dict: Dictionary with updates to merge
-        
-    Returns:
-        Merged dictionary
-    """
-    result = base_dict.copy()
-    for key, value in update_dict.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_update(result[key], value)
-        else:
-            result[key] = value
-    return result
