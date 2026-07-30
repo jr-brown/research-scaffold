@@ -13,6 +13,9 @@ uv run python main.py -c config.yaml         # single config
 uv run python main.py -m meta_config.yaml    # meta config (composition, grid search)
 uv run python main.py -s sweep.yaml          # wandb sweep
 
+# Dry run: print the fully composed config(s) that would run, then exit
+uv run python main.py -c config.yaml -d       # works with -c, -m, and -s
+
 # Test
 uv run pytest                                # run all tests
 uv run pytest tests/test_config_loading/     # run specific test directory
@@ -28,10 +31,14 @@ uv run pytest -k "test_name"                 # run specific test by name
 
 ### Core Flow
 ```
-execute_experiments() → load_config/load_meta_config/load_sweep_config
-                      → process_meta_config (if meta)
+execute_experiments() → build_configs()  # detects config type, loads, composes
+                      → ResolvedExperiments(configs, sweep_dicts, parallel)
                       → execute_from_config / execute_sweep_from_dict
+                        (or dry_run_report, with -d)
 ```
+
+`build_configs()` is the single resolution path, so a `-d` dry run cannot disagree with a
+real run. It returns fully composed configs; nothing is executed until the caller acts on them.
 
 ### Key Modules
 - `research_scaffold/config_tools.py`: Main execution engine, config loading, composition logic
