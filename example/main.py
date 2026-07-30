@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser(description="Run experiments from configs")
 parser.add_argument("-c", "--config_path", help="Single config file")
 parser.add_argument("-m", "--meta_config_path", help="Meta config with multiple experiments")
 parser.add_argument("-s", "--sweep_config_path", help="Wandb sweep config")
+parser.add_argument("-d", "--dry_run", action="store_true", help="Print the composed config(s) without running")
 parser.add_argument("-l", "--loglevel", default="info", help="Logging level")
 args = parser.parse_args()
 
@@ -53,6 +54,7 @@ if __name__ == "__main__":
             config_path=args.config_path,
             meta_config_path=args.meta_config_path,
             sweep_config_path=args.sweep_config_path,
+            dry_run=args.dry_run,
         )
         log.info("##### Program End #####")
     

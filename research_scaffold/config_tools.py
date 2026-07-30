@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 import multiprocessing as mp
-from dataclasses import replace
+from dataclasses import replace, asdict
 from os import path, makedirs
 from pprint import pformat
 from typing import Optional
@@ -32,6 +32,7 @@ except ModuleNotFoundError:
     has_torch = False
 
 import wandb
+import yaml
 
 
 # Local
@@ -47,6 +48,7 @@ from .types import (
     SweepConfig,
     ExperimentSpec,
     MetaConfig,
+    ResolvedExperiments,
 )
 from .util import (
     is_main_process,
@@ -699,6 +701,147 @@ def execute_sweep(
     execute_sweep_from_dict(function_map, sweep_dict)
 
 
+def build_configs(
+    config_path: Optional[ConfigInput] = None,
+    meta_config_path: Optional[ConfigInput] = None,
+    sweep_config_path: Optional[ConfigInput] = None,
+) -> ResolvedExperiments:
+    """
+    Resolve config paths into the fully composed configs and sweep dicts they produce,
+    without executing anything. This is the single resolution path used by both
+    execute_experiments and dry runs, so a dry run cannot disagree with a real run.
+    """
+    if sweep_config_path is not None:
+        log.info("Loading sweep config...")
+        return ResolvedExperiments([], [load_config_dict(sweep_config_path)])
+
+    if config_path is not None:
+        log.info("Loading config...")
+        config_type = detect_config_type(load_config_dict(config_path))
+        log.info(f"Detected config type: {config_type}")
+
+        if config_type == "meta":
+            meta_config_path = config_path  # Reuse meta config logic below
+        elif config_type == "sweep":
+            return ResolvedExperiments([], [load_config_dict(config_path)])
+        else:
+            return ResolvedExperiments([load_config(config_path)], [])
+
+    if meta_config_path is None:
+        return ResolvedExperiments([], [])
+
+    log.info("Loading meta config...")
+    meta_config = load_meta_config(meta_config_path)
+    log.info("========== Meta Config ===========\n" + pformat(meta_config))
+
+    # Sweep experiments get the same composition rules as regular experiments
+    sweep_dicts = [
+        process_sweep_experiment_spec(
+            exp,
+            folder=meta_config.folder,
+            common_root=meta_config.common_root,
+            common_patch=meta_config.common_patch,
+            bonus_dict=meta_config.bonus_dict,
+        )
+        for exp in meta_config.experiments
+        if isinstance(exp, SweepExperimentSpec)
+    ]
+    return ResolvedExperiments(
+        configs=process_meta_config(meta_config),
+        sweep_dicts=sweep_dicts,
+        parallel=meta_config.parallel,
+    )
+
+
+def _drop_unset(config_dict: StringKeyDict) -> StringKeyDict:
+    """Drop top-level keys left as None, which are unset config fields rather than meaningful values."""
+    return {k: v for k, v in config_dict.items() if v is not None}
+
+
+def resolve_config_for_display(
+    config: Config,
+    launch_time_stamp: Optional[str] = None,
+) -> StringKeyDict:
+    """Return a config as a plain dict with RUN_NAME/RUN_GROUP resolved as they would be at run time."""
+    resolved_names = resolve_run_names(
+        name=config.name,
+        time_stamp_name=config.time_stamp_name,
+        time_stamp_group=config.time_stamp_group,
+        wandb_group=config.wandb_group,
+        launch_time_stamp=launch_time_stamp,
+    )
+    config_dict = asdict(config)
+    config_dict["name"] = resolved_names["name"]
+    config_dict["wandb_group"] = resolved_names["group"]
+    del config_dict["time_stamp_name"], config_dict["time_stamp_group"]
+    if config_dict["instance"] is not None:
+        config_dict["instance"] = _drop_unset(config_dict["instance"])
+    return _drop_unset(substitute_placeholders(config_dict, resolved_names))
+
+
+def resolve_sweep_for_display(sweep_dict: StringKeyDict) -> StringKeyDict:
+    """Return a sweep dict with its base config composed in and SWEEP_NAME resolved."""
+    sweep_dict = dict(sweep_dict)
+    base_config_paths = sweep_dict.pop("base_config_paths", None)
+    base_config_path = sweep_dict.pop("base_config", None)
+
+    if base_config_paths is not None:
+        base_config = load_and_compose_config_steps(base_config_paths)
+    elif base_config_path is not None:
+        base_config = load_config(resolve_config_dict(base_config_path))
+    else:
+        base_config = None
+
+    # RUN_NAME comes from wandb at run time, so it stays unresolved; substituting it with
+    # itself is a no-op that leaves the placeholder visible.
+    resolved_names = {
+        "name": "RUN_NAME",
+        "group": (base_config.wandb_group if base_config else None) or "RUN_GROUP",
+        "sweep_name": sweep_dict.get("sweep_name") or "SWEEP_NAME",
+    }
+    display = {"sweep": substitute_placeholders(sweep_dict, resolved_names)}
+    if base_config is not None:
+        display["base_config"] = _drop_unset(
+            substitute_placeholders(asdict(base_config), resolved_names)
+        )
+    return display
+
+
+def check_function_names(configs: list[Config], function_map: FunctionMap) -> None:
+    """Warn about function_names that are not in the function map, which would fail at run time."""
+    missing = {c.function_name for c in configs} - set(function_map)
+    if missing:
+        log.warning(
+            f"function_name(s) not in function_map: {sorted(missing)} — "
+            f"these would fail at run time. Available: {sorted(function_map)}"
+        )
+
+
+def dry_run_report(
+    resolved: ResolvedExperiments,
+    launch_time_stamp: Optional[str] = None,
+) -> str:
+    """
+    Render resolved configs as a multi-document YAML report.
+    Output parses with yaml.safe_load_all, so it can be diffed or snapshot-tested.
+    """
+    configs, sweep_dicts = resolved.configs, resolved.sweep_dicts
+
+    def _document(header: str, d: StringKeyDict) -> str:
+        body = yaml.dump(d, sort_keys=False, default_flow_style=False).rstrip()
+        return f"--- # {header}\n{body}"
+
+    documents = [
+        _document(f"Config {i+1}/{len(configs)}", resolve_config_for_display(c, launch_time_stamp))
+        for i, c in enumerate(configs)
+    ] + [
+        _document(f"Sweep {i+1}/{len(sweep_dicts)}", resolve_sweep_for_display(s))
+        for i, s in enumerate(sweep_dicts)
+    ]
+    header = f"# Dry run: {len(configs)} config(s), {len(sweep_dicts)} sweep(s)"
+    return "\n".join([header] + documents)
+
+
 def _parallel_config_worker(index, config, function_map, launch_time_stamp, error_queue):
     """Worker for parallel config execution. Runs in a forked subprocess."""
     try:
@@ -712,6 +855,7 @@ def execute_experiments(
     config_path: Optional[str] = None,
     meta_config_path: Optional[str] = None,
     sweep_config_path: Optional[str] = None,
+    dry_run: bool = False,
 ) -> None:
     """Creates a sequence of configs from config_path or meta_config_path and executes them"""
 
@@ -727,108 +871,69 @@ def execute_experiments(
         meta_config_path is not None,
         sweep_config_path is not None,
     ])
-    
+
     if specified_modes > 1:
         raise ValueError(
             "Only one of config_path, meta_config_path, or sweep_config_path can be specified"
         )
-    
-    if sweep_config_path is not None:
-        execute_sweep(function_map, sweep_config_path)
-        return
 
-    configs = []
-    
-    if config_path is not None:
-        log.info("Loading config...")
-        
-        # Auto-detect config type
-        config_dict = load_config_dict(config_path)
-        config_type = detect_config_type(config_dict)
-        log.info(f"Detected config type: {config_type}")
-        
-        # Delegate to appropriate handler
-        if config_type == "meta":
-            meta_config_path = config_path  # Reuse existing meta config logic below
-        elif config_type == "sweep":
-            execute_sweep(function_map, config_path)
-            return
-        else:  # single
-            configs = [load_config(config_path)]
-
-    if meta_config_path is not None:
-        log.info("Loading meta config...")
-        meta_config = load_meta_config(meta_config_path)
-        log.info("========== Meta Config ===========\n" + pformat(meta_config))
-        
-        # Separate sweep experiments from regular experiments
-        sweep_experiments = [exp for exp in meta_config.experiments if isinstance(exp, SweepExperimentSpec)]
-        
-        # Process regular configs (skips sweeps)
-        configs = process_meta_config(meta_config)
-        
-        # Check if parallel execution applies
-        has_remote = any(c.instance is not None for c in configs)
-        use_parallel = meta_config.parallel and len(configs) > 1 and not has_remote and sys.platform != "win32"
-
-        if meta_config.parallel and has_remote:
-            log.warning(
-                "parallel=True is ignored when remote configs are present — use managed: true for parallel remote execution"
-            )
-        if meta_config.parallel and sys.platform == "win32":
-            log.warning("parallel=True requires fork — falling back to sequential on Windows")
-
-        # Execute configs
-        if use_parallel:
-            log.info(f"Executing {len(configs)} configs in parallel")
-            ctx = mp.get_context("fork")
-            error_queue = ctx.Queue()
-            processes = []
-            for i, config in enumerate(configs):
-                p = ctx.Process(
-                    target=_parallel_config_worker,
-                    args=(i, config, function_map, launch_time_stamp, error_queue),
-                )
-                processes.append(p)
-                p.start()
-            for i, p in enumerate(processes):
-                p.join()
-                log.info(f"Config {i+1}/{len(configs)} {'completed' if p.exitcode == 0 else 'failed'}")
-            # Hard crashes (OOM kill, segfault) leave the queue empty but exit nonzero
-            failures = {i: f"exit code {p.exitcode}" for i, p in enumerate(processes) if p.exitcode != 0}
-            while not error_queue.empty():
-                idx, msg = error_queue.get_nowait()
-                failures[idx] = msg
-            if failures:
-                idx = min(failures)
-                raise RuntimeError(f"Config {idx+1}/{len(configs)} failed: {failures[idx]}")
-        else:
-            for i, config in enumerate(configs):
-                log.info(f"Executing config {i+1}/{len(configs)}")
-                execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
-
-        # Execute sweep experiments (always sequential)
-        for i, sweep_exp in enumerate(sweep_experiments):
-            log.info(f"Executing sweep {i+1}/{len(sweep_experiments)}")
-
-            # Process sweep spec with same composition rules as regular experiments
-            sweep_dict = process_sweep_experiment_spec(
-                sweep_exp,
-                folder=meta_config.folder,
-                common_root=meta_config.common_root,
-                common_patch=meta_config.common_patch,
-                bonus_dict=meta_config.bonus_dict,
-            )
-
-            # Execute the sweep
-            execute_sweep_from_dict(function_map, sweep_dict)
-
-        return
-
-    if not configs:
+    if specified_modes == 0:
         log.warning("Please use -c, -m, or -s to specify a config, meta config, or sweep config to run!")
         return
 
-    for i, config in enumerate(configs):
-        log.info(f"Executing config {i+1}/{len(configs)}")
-        execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
+    resolved = build_configs(config_path, meta_config_path, sweep_config_path)
+    configs, sweep_dicts = resolved.configs, resolved.sweep_dicts
+
+    if dry_run:
+        check_function_names(configs, function_map)
+        print(dry_run_report(resolved, launch_time_stamp))
+        return
+
+    if not configs and not sweep_dicts:
+        log.warning("Config produced nothing to execute!")
+        return
+
+    # Check if parallel execution applies
+    has_remote = any(c.instance is not None for c in configs)
+    use_parallel = resolved.parallel and len(configs) > 1 and not has_remote and sys.platform != "win32"
+
+    if resolved.parallel and has_remote:
+        log.warning(
+            "parallel=True is ignored when remote configs are present — use managed: true for parallel remote execution"
+        )
+    if resolved.parallel and sys.platform == "win32":
+        log.warning("parallel=True requires fork — falling back to sequential on Windows")
+
+    # Execute configs
+    if use_parallel:
+        log.info(f"Executing {len(configs)} configs in parallel")
+        ctx = mp.get_context("fork")
+        error_queue = ctx.Queue()
+        processes = []
+        for i, config in enumerate(configs):
+            p = ctx.Process(
+                target=_parallel_config_worker,
+                args=(i, config, function_map, launch_time_stamp, error_queue),
+            )
+            processes.append(p)
+            p.start()
+        for i, p in enumerate(processes):
+            p.join()
+            log.info(f"Config {i+1}/{len(configs)} {'completed' if p.exitcode == 0 else 'failed'}")
+        # Hard crashes (OOM kill, segfault) leave the queue empty but exit nonzero
+        failures = {i: f"exit code {p.exitcode}" for i, p in enumerate(processes) if p.exitcode != 0}
+        while not error_queue.empty():
+            idx, msg = error_queue.get_nowait()
+            failures[idx] = msg
+        if failures:
+            idx = min(failures)
+            raise RuntimeError(f"Config {idx+1}/{len(configs)} failed: {failures[idx]}")
+    else:
+        for i, config in enumerate(configs):
+            log.info(f"Executing config {i+1}/{len(configs)}")
+            execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
+
+    # Execute sweeps (always sequential)
+    for i, sweep_dict in enumerate(sweep_dicts):
+        log.info(f"Executing sweep {i+1}/{len(sweep_dicts)}")
+        execute_sweep_from_dict(function_map, sweep_dict)

@@ -1,3 +1,5 @@
+name: "variant_b"
+
 function_kwargs:
   optional_param: "variant_b"
 
