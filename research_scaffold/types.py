@@ -90,6 +90,15 @@ class SweepConfig:
     instance: Optional["InstanceConfig"] = None
 
 
+@dataclass
+class ResolvedExperiments:
+    """Everything a config file expands to, resolved but not yet executed."""
+
+    configs: list["Config"]
+    sweep_dicts: list[StringKeyDict]
+    parallel: bool = False
+
+
 ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
 
 

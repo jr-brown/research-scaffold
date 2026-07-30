@@ -22,6 +22,13 @@ def get_base_argparser() -> argparse.ArgumentParser:
         help="Sweep config file for wandb hyperparameter search",
     )
     parser.add_argument(
+        "-d",
+        "--dry_run",
+        default=False,
+        action="store_true",
+        help="Print the fully composed config(s) that would run, then exit without executing",
+    )
+    parser.add_argument(
         "-l", "--loglevel", default="info", help="Provide logging level"
     )
     parser.add_argument(
