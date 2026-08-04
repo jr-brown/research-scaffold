@@ -98,7 +98,7 @@ class ResolvedExperiments:
     sweep_dicts: list[StringKeyDict]
     parallel: bool = False
     start_method: Optional[str] = None
-    max_concurrent: int = 0
+    max_concurrent: Optional[int] = None
 
 
 ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
@@ -117,7 +117,7 @@ class MetaConfig:
     bonus_dict: Optional[StringKeyDict]
     parallel: bool = False
     start_method: Optional[str] = None
-    max_concurrent: int = 0
+    max_concurrent: Optional[int] = None
 
     @property
     def d(self):

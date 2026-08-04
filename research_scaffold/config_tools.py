@@ -226,7 +226,7 @@ def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
         folder=mc_dict.get("folder", ""),
         parallel=mc_dict.get("parallel", False),
         start_method=mc_dict.get("start_method", None),
-        max_concurrent=mc_dict.get("max_concurrent", 0),
+        max_concurrent=mc_dict.get("max_concurrent", None),
     )
 
 
@@ -911,7 +911,7 @@ def execute_experiments(
     if use_parallel:
         # fork is unsafe once a child touches Metal (macOS) and unavailable on Windows
         start_method = resolved.start_method or ("fork" if sys.platform == "linux" else "spawn")
-        limit = resolved.max_concurrent or len(configs)
+        limit = resolved.max_concurrent if resolved.max_concurrent is not None else len(configs)
         log.info(f"Executing {len(configs)} configs in parallel ({start_method}, {limit} at a time)")
         ctx = mp.get_context(start_method)
         error_queue = ctx.Queue()
