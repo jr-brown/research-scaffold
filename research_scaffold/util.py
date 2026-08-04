@@ -80,6 +80,19 @@ def check_name_sub_general(
     return inner(_x), count  # type: ignore
 
 
+REPLACE_KEY = "<replace>"
+
+
+def strip_replace_keys(x: Any) -> Any:
+    """Recursively remove REPLACE_KEY markers from a nested structure."""
+    if isinstance(x, dict):
+        return {k: strip_replace_keys(v) for k, v in x.items() if k != REPLACE_KEY}
+    elif isinstance(x, list):
+        return [strip_replace_keys(v) for v in x]
+    else:
+        return x
+
+
 def recursive_dict_update(
     base: dict,
     target: dict,
@@ -90,16 +103,24 @@ def recursive_dict_update(
 ) -> dict:
     """
     Return new dictionary from recursively updating base dictionary with target dictionary.
+    A target dict containing `<replace>: true` discards base entirely at that level, taking
+    no keys from it at any depth; the marker itself is stripped from the result.
     Options:
     - assert_type_match: If True, raises ValueError if types do not match for a key.
     - type_match_ignore_nones: If True, ignores type mismatches if either type is None.
     - extend_lists: If True, appends lists instead of replacing them.
     - compositions: Dict of functions to combine base and target values instead of replacing them.
     """
+    if target.get(REPLACE_KEY, False):
+        return strip_replace_keys(target)
+
     compositions = compositions if compositions is not None else {}
     new = deepcopy(base)
 
     for k, v in target.items():
+
+        if k == REPLACE_KEY:
+            continue
 
         if assert_type_match and (k in base.keys()):
             t1, t2 = type(base[k]), type(v)
@@ -109,7 +130,7 @@ def recursive_dict_update(
                 raise ValueError(f"Types do not match for key {k}, {t1} vs {t2}")
 
         if k not in base.keys():
-            new[k] = v
+            new[k] = strip_replace_keys(v)
 
         elif k in compositions.keys():
             new[k] = compositions[k](base[k], v)
@@ -124,10 +145,10 @@ def recursive_dict_update(
             )
 
         elif isinstance(v, list) and isinstance(base[k], list) and extend_lists:
-            new[k] += v
+            new[k] += strip_replace_keys(v)
 
         else:
-            new[k] = v
+            new[k] = strip_replace_keys(v)
 
     return new
 

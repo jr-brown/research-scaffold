@@ -51,3 +51,74 @@ def test_meta_config_base():
     assert mc.bonus_dict["function_kwargs"]["dataset"] == "full"
     assert len(mc.experiments) == 1
 
+
+
+def test_replace_marker_discards_inherited_block():
+    config = load_and_compose_config_steps([
+        {
+            "name": "base",
+            "function_name": "f",
+            "function_kwargs": {
+                "keep_me": 1,
+                "side_task": {
+                    "type": "rolling_mod_sum",
+                    "n_samples": 10000,
+                    "modulus": 3,
+                    "nested": {"a": 1},
+                },
+            },
+        },
+        {
+            "function_kwargs": {
+                "side_task": {
+                    "<replace>": True,
+                    "type": "knights_and_knaves",
+                    "n_people": 3,
+                },
+            },
+        },
+    ])
+
+    assert config.function_kwargs["side_task"] == {
+        "type": "knights_and_knaves",
+        "n_people": 3,
+    }
+    assert config.function_kwargs["keep_me"] == 1
+
+
+def test_replace_marker_is_deep_and_stripped():
+    config = load_and_compose_config_steps([
+        {
+            "name": "base",
+            "function_name": "f",
+            "function_kwargs": {"block": {"outer": 1, "inner": {"a": 1, "b": 2}}},
+        },
+        {
+            "function_kwargs": {
+                "block": {
+                    "<replace>": True,
+                    "inner": {"<replace>": True, "c": 3},
+                },
+            },
+        },
+    ])
+
+    assert config.function_kwargs["block"] == {"inner": {"c": 3}}
+
+
+def test_replace_marker_on_new_key_is_stripped():
+    config = load_and_compose_config_steps([
+        {"name": "base", "function_name": "f", "function_kwargs": {}},
+        {"function_kwargs": {"fresh": {"<replace>": True, "a": 1}}},
+    ])
+
+    assert config.function_kwargs["fresh"] == {"a": 1}
+
+
+def test_merging_is_still_the_default():
+    config = load_and_compose_config_steps([
+        {"name": "base", "function_name": "f", "function_kwargs": {"block": {"a": 1}}},
+        {"function_kwargs": {"block": {"b": 2}}},
+    ])
+
+    assert config.function_kwargs["block"] == {"a": 1, "b": 2}

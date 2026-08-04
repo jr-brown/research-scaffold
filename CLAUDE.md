@@ -59,6 +59,31 @@ experiments:
       - ["small.yaml", "large.yaml"]
 ```
 
+#### Replacing a Block Instead of Merging Into It
+
+Nested dicts merge key by key by default. A block containing `<replace>: true` discards the
+inherited block entirely instead, taking no keys from it at any depth:
+
+```yaml
+# earlier in the chain
+side_task:
+  type: rolling_mod_sum
+  n_samples: 10000
+  modulus: 3
+
+# later in the chain
+side_task:
+  <replace>: true
+  type: knights_and_knaves
+  n_people: 3
+
+# result: {type: knights_and_knaves, n_people: 3}
+```
+
+The marker is stripped from the composed config. Use it for tagged-union blocks, where the
+valid keys depend on a `type` field and inherited keys from a different variant are never
+correct. At the top level of a config file it discards everything earlier in the chain.
+
 ### Parallel Local Execution
 
 A meta config can run its composed configs concurrently in separate processes:
