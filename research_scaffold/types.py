@@ -97,6 +97,8 @@ class ResolvedExperiments:
     configs: list["Config"]
     sweep_dicts: list[StringKeyDict]
     parallel: bool = False
+    start_method: Optional[str] = None
+    max_concurrent: int = 0
 
 
 ExperimentSpec = Union[ProductExperimentSpec, SweepExperimentSpec]
@@ -114,6 +116,8 @@ class MetaConfig:
     rng_seed_offset: int
     bonus_dict: Optional[StringKeyDict]
     parallel: bool = False
+    start_method: Optional[str] = None
+    max_concurrent: int = 0
 
     @property
     def d(self):

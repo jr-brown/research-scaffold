@@ -126,13 +126,25 @@ def test_execute_meta_config_full(mock_git):
         os.chdir(old_cwd)
 
 
-def test_parallel_execution(mock_git, tmp_path):
+# Workers for parallel tests must be importable module-level functions, since the
+# spawn start method (the default off Linux) pickles function_map by qualified name.
+# They communicate through RS_TEST_OUT rather than a closure over tmp_path.
+def _write_pid(**kwargs):
+    out = Path(os.environ["RS_TEST_OUT"])
+    (out / f"pid_{os.getpid()}").write_text(kwargs.get("arg1", "done"))
+    if kwargs.get("arg1") == os.environ.get("RS_TEST_FAIL_ON"):
+        raise ValueError("intentional failure")
+
+
+def _write_kwargs(**kwargs):
+    out = Path(os.environ["RS_TEST_OUT"])
+    (out / f"kwargs_{os.getpid()}.json").write_text(json.dumps(kwargs))
+
+
+def test_parallel_execution(mock_git, tmp_path, monkeypatch):
     """Test that parallel=True runs experiments in different processes"""
-
-    def test_fn(**kwargs):
-        (tmp_path / f"pid_{os.getpid()}").write_text("done")
-
-    function_map = {"example_multi_arg_config": test_fn}
+    monkeypatch.setenv("RS_TEST_OUT", str(tmp_path))
+    function_map = {"example_multi_arg_config": _write_pid}
 
     old_cwd = os.getcwd()
     try:
@@ -181,15 +193,11 @@ def test_sequential_execution_without_parallel(mock_git):
         os.chdir(old_cwd)
 
 
-def test_parallel_error_propagation(mock_git, tmp_path):
+def test_parallel_error_propagation(mock_git, tmp_path, monkeypatch):
     """Test that if one parallel experiment fails, the other still runs and the error is re-raised"""
-
-    def test_fn(**kwargs):
-        (tmp_path / f"pid_{os.getpid()}").write_text(kwargs.get("arg1", ""))
-        if kwargs.get("arg1") == "read from level1a.yaml":
-            raise ValueError("intentional failure")
-
-    function_map = {"example_multi_arg_config": test_fn}
+    monkeypatch.setenv("RS_TEST_OUT", str(tmp_path))
+    monkeypatch.setenv("RS_TEST_FAIL_ON", "read from level1a.yaml")
+    function_map = {"example_multi_arg_config": _write_pid}
 
     old_cwd = os.getcwd()
     try:
@@ -207,17 +215,15 @@ def test_parallel_error_propagation(mock_git, tmp_path):
         os.chdir(old_cwd)
 
 
-def test_parallel_same_results_as_sequential(mock_git, tmp_path):
+def test_parallel_same_results_as_sequential(mock_git, tmp_path, monkeypatch):
     """Test that parallel execution produces the same function calls as sequential"""
     from research_scaffold.config_tools import execute_from_config
 
+    monkeypatch.setenv("RS_TEST_OUT", str(tmp_path))
     sequential_kwargs = []
 
     def seq_fn(**kwargs):
         sequential_kwargs.append(kwargs)
-
-    def par_fn(**kwargs):
-        (tmp_path / f"kwargs_{os.getpid()}.json").write_text(json.dumps(kwargs))
 
     old_cwd = os.getcwd()
     try:
@@ -231,7 +237,7 @@ def test_parallel_same_results_as_sequential(mock_git, tmp_path):
 
         # Parallel via execute_experiments
         execute_experiments(
-            function_map={"example_multi_arg_config": par_fn},
+            function_map={"example_multi_arg_config": _write_kwargs},
             meta_config_path="meta_configs/parallel_test.yaml",
         )
 

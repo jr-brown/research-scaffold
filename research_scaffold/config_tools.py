@@ -6,6 +6,7 @@ Tools for loading and executing experiments from config files.
 import logging
 import subprocess
 import sys
+import time
 
 import multiprocessing as mp
 from dataclasses import replace, asdict
@@ -224,6 +225,8 @@ def load_meta_config(meta_cfg_path: ConfigInput) -> MetaConfig:
         rng_seed_offset=mc_dict.get("rng_seed_offset", 0),
         folder=mc_dict.get("folder", ""),
         parallel=mc_dict.get("parallel", False),
+        start_method=mc_dict.get("start_method", None),
+        max_concurrent=mc_dict.get("max_concurrent", 0),
     )
 
 
@@ -750,6 +753,8 @@ def build_configs(
         configs=process_meta_config(meta_config),
         sweep_dicts=sweep_dicts,
         parallel=meta_config.parallel,
+        start_method=meta_config.start_method,
+        max_concurrent=meta_config.max_concurrent,
     )
 
 
@@ -843,7 +848,7 @@ def dry_run_report(
 
 
 def _parallel_config_worker(index, config, function_map, launch_time_stamp, error_queue):
-    """Worker for parallel config execution. Runs in a forked subprocess."""
+    """Worker for parallel config execution. Runs in a subprocess."""
     try:
         execute_from_config(config, function_map=function_map, launch_time_stamp=launch_time_stamp)
     except Exception as e:
@@ -895,22 +900,25 @@ def execute_experiments(
 
     # Check if parallel execution applies
     has_remote = any(c.instance is not None for c in configs)
-    use_parallel = resolved.parallel and len(configs) > 1 and not has_remote and sys.platform != "win32"
+    use_parallel = resolved.parallel and len(configs) > 1 and not has_remote
 
     if resolved.parallel and has_remote:
         log.warning(
             "parallel=True is ignored when remote configs are present — use managed: true for parallel remote execution"
         )
-    if resolved.parallel and sys.platform == "win32":
-        log.warning("parallel=True requires fork — falling back to sequential on Windows")
 
     # Execute configs
     if use_parallel:
-        log.info(f"Executing {len(configs)} configs in parallel")
-        ctx = mp.get_context("fork")
+        # fork is unsafe once a child touches Metal (macOS) and unavailable on Windows
+        start_method = resolved.start_method or ("fork" if sys.platform == "linux" else "spawn")
+        limit = resolved.max_concurrent or len(configs)
+        log.info(f"Executing {len(configs)} configs in parallel ({start_method}, {limit} at a time)")
+        ctx = mp.get_context(start_method)
         error_queue = ctx.Queue()
         processes = []
         for i, config in enumerate(configs):
+            while sum(p.is_alive() for p in processes) >= limit:
+                time.sleep(0.1)
             p = ctx.Process(
                 target=_parallel_config_worker,
                 args=(i, config, function_map, launch_time_stamp, error_queue),
