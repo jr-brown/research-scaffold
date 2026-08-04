@@ -59,6 +59,35 @@ experiments:
       - ["small.yaml", "large.yaml"]
 ```
 
+### Parallel Local Execution
+
+A meta config can run its composed configs concurrently in separate processes:
+
+```yaml
+parallel: true
+max_concurrent: 2         # Optional: how many run at once (0 = default = all at once)
+start_method: "spawn"     # Optional: fork on Linux, spawn elsewhere
+experiments: [...]
+```
+
+`parallel: true` is ignored when any config has an `instance` block — use `managed: true` for
+parallel remote execution instead.
+
+**`max_concurrent`** bounds how many configs run simultaneously. The default of `0` starts every
+config at once. Set it when the runs contend for a resource, e.g. `max_concurrent: 2` for GPU
+fine-tuning jobs that would otherwise all grab memory at the same time.
+
+**`start_method`** picks the multiprocessing start method. The default is `fork` on Linux and
+`spawn` everywhere else — `fork` is unsafe on macOS once a worker touches Metal (MPS runs either
+segfault or fail with "Failed to created pipeline state object"). Override it only to force a
+specific method.
+
+Under `spawn`, `function_map` is pickled, so worker functions must be importable at module level.
+Functions imported from a module, `functools.partial` objects, and callable class instances all
+work; functions defined *inside* another function and lambdas do not, and fail immediately at
+launch with `Can't pickle local object`. Each worker also re-imports the caller's `main.py`, so it
+needs an `if __name__ == "__main__":` guard and module-level work runs once per config.
+
 ### Placeholders
 - `RUN_NAME`: Replaced with experiment name (timestamped if `time_stamp_name: true`)
 - `RUN_GROUP`: Replaced with wandb group (timestamped if `time_stamp_group: true`)
