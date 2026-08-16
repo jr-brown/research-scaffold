@@ -21,10 +21,19 @@ def mock_sky():
         mock.launch.return_value = "req-launch-123"
 
         # Mock sky.get to return (job_id, handle)
-        mock.get.return_value = (1, MagicMock())
-
         # Mock sky.status
         mock.status.return_value = "req-status-123"
+
+        # sky.get serves two different call sites: resolving a status query (which yields
+        # the list of matching clusters) and resolving a launch (which yields job_id/handle).
+        # Default to "no such cluster exists", so tests launch rather than hitting the
+        # already-running skip path.
+        def mock_get(request_id, *args, **kwargs):
+            if request_id == mock.status.return_value:
+                return []
+            return (1, MagicMock())
+
+        mock.get.side_effect = mock_get
 
         # Mock sky.jobs.launch to return a request_id string
         mock.jobs.launch.return_value = "req-managed-456"
