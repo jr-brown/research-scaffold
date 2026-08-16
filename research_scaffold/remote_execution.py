@@ -1,5 +1,6 @@
 
 import os
+import re
 import json
 import posixpath
 import base64
@@ -20,6 +21,23 @@ log = get_logger(__name__)
 # Safety net when sync is used: even if the local sync watcher dies, the cluster
 # still autodowns this many minutes after the job finishes.
 SYNC_AUTOSTOP_MINUTES = 30
+
+
+def sanitize_cluster_name(name: str) -> str:
+    """Coerce a name into SkyPilot's CLUSTER_NAME_VALID_REGEX.
+
+    That regex is '[a-zA-Z]([-_.a-zA-Z0-9]*[a-zA-Z0-9])?': start with a letter, end
+    alphanumeric, only -_. and alphanumerics between. Length is not handled here, since
+    SkyPilot truncates and hashes per cloud in make_cluster_name_on_cloud.
+    """
+    cleaned = re.sub(r"[^-_.a-zA-Z0-9]", "-", name)
+    cleaned = re.sub(r"[^a-zA-Z0-9]+$", "", cleaned)
+    if not cleaned:
+        return f"c{uuid.uuid4().hex[:8]}"
+    if not cleaned[0].isalpha():
+        # Prefix rather than strip, so "3b-model" and "b-model" stay distinct names
+        cleaned = f"c-{cleaned}"
+    return cleaned
 
 
 def get_git_user_info(repo_root: str) -> tuple[str, str]:
@@ -522,11 +540,12 @@ def launch_remote_job(
         existing = get_existing_cluster(cluster_name)
         if existing:
             status = existing['status']
-            log.info("")
-            log.info(f"⏭️  Instance '{cluster_name}' is already running (status: {status})")
-            log.info(f"   View logs:   sky logs {cluster_name}")
-            log.info("   Check status: sky status")
-            log.info("   Skipping launch, continuing without spinning up new instance.")
+            log.warning(
+                f"⏭️  NOT starting '{job_name}': a cluster named '{cluster_name}' already "
+                f"exists (status: {status}). This config was not launched."
+            )
+            log.warning(f"   View logs:    sky logs {cluster_name}")
+            log.warning("   Check status: sky status")
             return cluster_name, None, True  # Already running
     else:
         cluster_name = f"c{uuid.uuid4().hex[:8]}"
@@ -706,9 +725,11 @@ def execute_config_remotely(
     if local_save_config_path:
         save_config_locally(config_dict, _sub(local_save_config_path))
 
-    # Substitute placeholders in instance fields
-    if instance_config.name:
-        instance_config.name = _sub(instance_config.name)
+    # Cluster name defaults to the resolved run name, so distinct configs in a batch get
+    # distinct clusters, and the already-running check below dedupes only genuine re-runs.
+    instance_config.name = sanitize_cluster_name(
+        _sub(instance_config.name) if instance_config.name else resolved_names["name"]
+    )
 
     if instance_config.commit:
         instance_config.commit = [_sub(p) for p in instance_config.commit]
@@ -819,9 +840,11 @@ def execute_sweep_remotely(
     if save_config_path:
         save_config_locally(sweep_dict, _sub(save_config_path))
 
-    # Substitute placeholders in instance fields
-    if instance_config.name:
-        instance_config.name = _sub(instance_config.name)
+    # Cluster name defaults to the resolved run name, so distinct configs in a batch get
+    # distinct clusters, and the already-running check below dedupes only genuine re-runs.
+    instance_config.name = sanitize_cluster_name(
+        _sub(instance_config.name) if instance_config.name else resolved_names["name"]
+    )
 
     if instance_config.commit:
         instance_config.commit = [_sub(p) for p in instance_config.commit]

@@ -6,6 +6,8 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 
+from sky.utils.common_utils import check_cluster_name_is_valid
+
 from research_scaffold.types import InstanceConfig, Config
 from research_scaffold.remote_execution import (
     _build_sky_task,
@@ -15,12 +17,40 @@ from research_scaffold.remote_execution import (
     execute_config_remotely,
     execute_sweep_remotely,
     start_log_streaming,
+    sanitize_cluster_name,
     start_sync_back,
     SYNC_AUTOSTOP_MINUTES,
 )
 
 TEST_DIR = Path(__file__).parent
 SKY_CONFIG_PATH = str(TEST_DIR / "sky_config.yaml")
+
+
+# --- Cluster name sanitizing ---
+
+
+class TestSanitizeClusterName:
+    @pytest.mark.parametrize("raw", [
+        "my_experiment_2026-07-31_16-31-24",  # typical resolved run name
+        "3b_model_run",                       # starts with a digit
+        "run_",                               # ends with an underscore
+        "lr=0.001,bs=32",                     # characters from a param sweep name
+        "exp/v2 final",                       # slash and space
+        "___",                                # nothing usable left
+        "café_run",                           # non-ascii
+        "a",                                  # single letter
+    ])
+    def test_output_passes_skypilots_own_validator(self, raw):
+        """Checked against SkyPilot's real validator, so this fails if their rule changes."""
+        check_cluster_name_is_valid(sanitize_cluster_name(raw))
+
+    def test_already_valid_name_is_unchanged(self):
+        name = "my_experiment_2026-07-31_16-31-24"
+        assert sanitize_cluster_name(name) == name
+
+    def test_distinct_names_stay_distinct(self):
+        """Leading digits are prefixed, not stripped, so these must not collapse together."""
+        assert sanitize_cluster_name("3b-model") != sanitize_cluster_name("b-model")
 
 
 # --- InstanceConfig tests ---
@@ -351,8 +381,60 @@ class TestExecuteConfigRemotely:
 
         # Should use standard launch
         mock_sky['launch'].assert_called_once()
-        mock_sky['get'].assert_called_once()
+        # sky.get now also resolves the cluster-existence query, so assert the blocking
+        # call on the launch request specifically rather than a bare call count
+        mock_sky['get'].assert_any_call("req-launch-123")
         mock_sky['jobs_launch'].assert_not_called()
+
+    def _resolved(self, name):
+        return {"name": name, "name_base": name, "group": "", "sweep_name": ""}
+
+    def test_cluster_name_defaults_to_run_name(self, mock_sky, mock_git_info):
+        """With no instance name set, the cluster is named after the resolved run."""
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=True)
+
+        result = execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+        assert result == "expt_a"
+
+    def test_batch_configs_get_distinct_clusters(self, mock_sky, mock_git_info):
+        """The regression this default exists for: distinct configs must not share a cluster
+        name, or all but the first are silently skipped."""
+        names = []
+        for run_name in ["expt_variant_a", "expt_variant_b"]:
+            ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=True)
+            names.append(execute_config_remotely(ic, self._make_config(), self._resolved(run_name)))
+
+        assert names == ["expt_variant_a", "expt_variant_b"]
+        assert len(set(names)) == 2
+
+    def test_skipped_launch_warns_that_config_did_not_start(self, mock_sky, mock_git_info, caplog):
+        """A skip must be loud: it means this config did not run at all."""
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=False)
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value={'status': 'UP'}):
+            result = execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+        assert result == "expt_a"
+        mock_sky['launch'].assert_not_called()
+        warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("not launched" in m for m in warnings), warnings
+
+    def test_explicit_name_wins_and_substitutes_run_name(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=True, name="gpu-RUN_NAME")
+
+        result = execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+        assert result == "gpu-expt_a"
+
+    def test_derived_name_is_sanitized(self, mock_sky, mock_git_info):
+        """A run name that is not a legal cluster name must not reach SkyPilot raw."""
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=True)
+
+        result = execute_config_remotely(ic, self._make_config(), self._resolved("3b/model run"))
+
+        check_cluster_name_is_valid(result)
+        assert result == "c-3b-model-run"
 
     def test_execute_config_remotely_managed_with_log_streaming(self, mock_sky, mock_git_info, tmp_path):
         """Managed path streams logs via start_managed_log_streaming."""
@@ -467,7 +549,9 @@ class TestExecuteSweepRemotely:
         execute_sweep_remotely(ic, sweep_dict, "test-sweep", resolved_names=resolved_names)
 
         mock_sky['launch'].assert_called_once()
-        mock_sky['get'].assert_called_once()
+        # sky.get now also resolves the cluster-existence query, so assert the blocking
+        # call on the launch request specifically rather than a bare call count
+        mock_sky['get'].assert_any_call("req-launch-123")
         mock_sky['jobs_launch'].assert_not_called()
 
     def test_execute_sweep_remotely_managed_with_log_streaming(self, mock_sky, mock_git_info, tmp_path):
