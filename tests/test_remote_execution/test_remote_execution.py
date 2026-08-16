@@ -15,6 +15,8 @@ from research_scaffold.remote_execution import (
     execute_config_remotely,
     execute_sweep_remotely,
     start_log_streaming,
+    start_sync_back,
+    SYNC_AUTOSTOP_MINUTES,
 )
 
 TEST_DIR = Path(__file__).parent
@@ -364,6 +366,79 @@ class TestExecuteConfigRemotely:
             mock_stream.assert_called_once()
             call_args = mock_stream.call_args
             assert call_args[0][0] == "managed-exp"  # managed_job_name
+
+
+# --- sync-back tests ---
+
+
+class TestSyncBack:
+    def _make_config(self, **kwargs):
+        defaults = {"name": "test-experiment", "function_name": "train"}
+        defaults.update(kwargs)
+        return Config(**defaults)
+
+    def _resolved(self, name):
+        return {"name": name, "name_base": name, "group": "", "sweep_name": ""}
+
+    def test_start_sync_back_script_is_valid_and_complete(self, tmp_path):
+        import subprocess
+        real_popen_cls = subprocess.Popen
+        with patch('research_scaffold.remote_execution.subprocess.Popen') as mock_popen:
+            mock_popen.return_value = MagicMock(spec=real_popen_cls)
+            start_sync_back("my-cluster", ["outputs"], str(tmp_path), "", str(tmp_path / "sync.log"))
+
+        script = mock_popen.call_args[0][0][2]
+        compile(script, '<sync-script>', 'exec')  # must be syntactically valid python
+        assert "sky.tail_logs" in script
+        assert "rsync" in script
+        assert "sky.down" in script
+        assert "'my-cluster'" in script
+        assert "sky_workdir/outputs" in script
+        assert str(tmp_path / "outputs") in script
+
+    def test_start_sync_back_respects_rel_cwd(self, tmp_path):
+        import subprocess
+        real_popen_cls = subprocess.Popen
+        with patch('research_scaffold.remote_execution.subprocess.Popen') as mock_popen:
+            mock_popen.return_value = MagicMock(spec=real_popen_cls)
+            start_sync_back("my-cluster", ["outputs"], str(tmp_path), "example", str(tmp_path / "sync.log"))
+
+        script = mock_popen.call_args[0][0][2]
+        assert "sky_workdir/example/outputs" in script
+
+    def test_sync_launches_with_autostop_and_starts_watcher(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, sync=["outputs/RUN_NAME"])
+
+        with patch('research_scaffold.remote_execution.start_sync_back') as mock_sync:
+            execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+        assert mock_sky['launch'].call_args.kwargs['idle_minutes_to_autostop'] == SYNC_AUTOSTOP_MINUTES
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args[0][1] == ["outputs/expt_a"]  # placeholder substituted
+
+    def test_no_sync_launches_without_autostop(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH)
+
+        with patch('research_scaffold.remote_execution.start_sync_back') as mock_sync:
+            execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+        assert mock_sky['launch'].call_args.kwargs['idle_minutes_to_autostop'] is None
+        mock_sync.assert_not_called()
+
+    def test_sync_with_managed_raises(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, managed=True, sync=["outputs"])
+
+        with pytest.raises(RuntimeError, match="not supported with managed jobs"):
+            execute_config_remotely(ic, self._make_config(), self._resolved("expt_a"))
+
+    def test_sweep_sync_starts_watcher(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, sync=["outputs"])
+        sweep_dict = {"method": "random", "parameters": {"lr": {"values": [0.01]}}}
+
+        with patch('research_scaffold.remote_execution.start_sync_back') as mock_sync:
+            execute_sweep_remotely(ic, sweep_dict, "test-sweep", resolved_names=self._resolved("test-sweep"))
+
+        mock_sync.assert_called_once()
 
 
 # --- execute_sweep_remotely tests ---

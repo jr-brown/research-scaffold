@@ -1,6 +1,7 @@
 
 import os
 import json
+import posixpath
 import base64
 import uuid
 import yaml
@@ -15,6 +16,10 @@ from .types import Config, InstanceConfig
 from .util import get_logger, load_config_dict, recursive_dict_update, substitute_placeholders
 
 log = get_logger(__name__)
+
+# Safety net when sync is used: even if the local sync watcher dies, the cluster
+# still autodowns this many minutes after the job finishes.
+SYNC_AUTOSTOP_MINUTES = 30
 
 
 def get_git_user_info(repo_root: str) -> tuple[str, str]:
@@ -158,6 +163,62 @@ with open("{log_file_path}", "w") as f:
     )
     
     log.info(f"   Monitor: tail -f {log_file_path}")
+    return process
+
+
+def start_sync_back(
+    cluster_name: str,
+    sync_paths: list[str],
+    local_cwd: str,
+    rel_cwd: str,
+    sync_log_path: str,
+) -> subprocess.Popen:
+    import sys
+
+    pairs = [
+        (posixpath.join("sky_workdir", rel_cwd, p), os.path.join(local_cwd, p))
+        for p in sync_paths
+    ]
+
+    log.info(f"🔄 Sync-back watcher started for: {', '.join(sync_paths)}")
+
+    script = f'''
+import os
+import subprocess
+import traceback
+import sky
+
+with open({sync_log_path!r}, "w") as f:
+    try:
+        # Blocks until the remote job exits
+        sky.tail_logs({cluster_name!r}, job_id=None, follow=True, output_stream=f)
+        for remote, local in {pairs!r}:
+            os.makedirs(local, exist_ok=True)
+            subprocess.run(
+                ["rsync", "-az", {cluster_name!r} + ":" + remote + "/", local + "/"],
+                check=True, stdout=f, stderr=f,
+            )
+            f.write(f"Synced {{remote}} -> {{local}}\\n")
+            f.flush()
+        f.write("Sync complete, tearing down cluster\\n")
+        f.flush()
+        sky.get(sky.down({cluster_name!r}))
+        f.write("Cluster torn down\\n")
+        f.flush()
+    except Exception as e:
+        f.write(f"\\n\\n=== Sync-back error ===\\n{{e}}\\n")
+        f.write(traceback.format_exc())
+        f.flush()
+'''
+
+    process = subprocess.Popen(
+        [sys.executable, '-c', script],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    log.info(f"   Sync log: {sync_log_path}")
     return process
 
 
@@ -429,6 +490,7 @@ def launch_remote_job(
     instance_config: InstanceConfig,
     job_name: str,
     run_command: str,
+    idle_minutes_to_autostop: Optional[int] = None,
 ) -> tuple[str, Optional[str], bool]:
     """Launch a remote job using SkyPilot (fire and forget).
 
@@ -486,6 +548,7 @@ def launch_remote_job(
             cluster_name=cluster_name,
             down=True,  # Auto tear down after completion
             retry_until_up=instance_config.retry_until_up,
+            idle_minutes_to_autostop=idle_minutes_to_autostop,
         )
 
         log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
@@ -650,6 +713,14 @@ def execute_config_remotely(
     if instance_config.commit:
         instance_config.commit = [_sub(p) for p in instance_config.commit]
 
+    if instance_config.sync:
+        if instance_config.managed:
+            raise RuntimeError(
+                "instance.sync is not supported with managed jobs; the worker cluster is not "
+                "reachable from this machine. Use commit or a storage mount instead."
+            )
+        instance_config.sync = [_sub(p) for p in instance_config.sync]
+
     # Build the experiment run command (config sent to remote has no log/save paths)
     experiment_run_cmd = build_experiment_run_command(
         config_dict=config_dict,
@@ -679,12 +750,17 @@ def execute_config_remotely(
             instance_config=instance_config,
             job_name=config.name,
             run_command=experiment_run_cmd,
+            idle_minutes_to_autostop=SYNC_AUTOSTOP_MINUTES if instance_config.sync else None,
         )
 
         # Start streaming logs to local file (if configured and job was actually launched)
         if local_log_file_path and request_id and not was_already_running:
             actual_log_path = _sub(local_log_file_path)
             start_log_streaming(request_id, cluster_name, actual_log_path)
+
+        if instance_config.sync and request_id and not was_already_running:
+            sync_log_path = _sub(local_log_file_path) + ".sync" if local_log_file_path else os.devnull
+            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path)
 
         return cluster_name
 
@@ -750,6 +826,14 @@ def execute_sweep_remotely(
     if instance_config.commit:
         instance_config.commit = [_sub(p) for p in instance_config.commit]
 
+    if instance_config.sync:
+        if instance_config.managed:
+            raise RuntimeError(
+                "instance.sync is not supported with managed jobs; the worker cluster is not "
+                "reachable from this machine. Use commit or a storage mount instead."
+            )
+        instance_config.sync = [_sub(p) for p in instance_config.sync]
+
     # Build the sweep run command
     sweep_run_cmd = build_sweep_run_command(
         sweep_dict=sweep_dict,
@@ -779,11 +863,16 @@ def execute_sweep_remotely(
             instance_config=instance_config,
             job_name=sweep_name,
             run_command=sweep_run_cmd,
+            idle_minutes_to_autostop=SYNC_AUTOSTOP_MINUTES if instance_config.sync else None,
         )
 
         # Start streaming logs to local file (if configured and job was actually launched)
         if log_file_path and request_id and not was_already_running:
             actual_log_path = _sub(log_file_path)
             start_log_streaming(request_id, cluster_name, actual_log_path)
+
+        if instance_config.sync and request_id and not was_already_running:
+            sync_log_path = _sub(log_file_path) + ".sync" if log_file_path else os.devnull
+            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path)
 
         return cluster_name

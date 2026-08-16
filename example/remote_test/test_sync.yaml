@@ -1,0 +1,18 @@
+# Test the instance.sync feature: run remotely, rsync outputs back, tear down.
+#
+# Run from example/ with:
+#   python main.py -c remote_test/test_sync.yaml
+
+name: "sync_test"
+time_stamp_name: true
+function_name: "example_sweep"
+wandb_project: "research-scaffold-demo"
+log_file_path: "outputs/RUN_NAME/output.log"
+function_kwargs:
+  learning_rate: 0.01
+  batch_size: 32
+  output_dir: "outputs/RUN_NAME"
+instance:
+  sky_config: "example/sky_config.yaml"
+  sync:
+    - "outputs/RUN_NAME"
