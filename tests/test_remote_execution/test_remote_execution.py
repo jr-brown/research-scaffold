@@ -75,7 +75,7 @@ class TestBuildSkyTask:
     def test_build_sky_task(self, mock_sky, mock_git_info):
         """_build_sky_task loads config, applies patch, injects run command, returns Task."""
         ic = InstanceConfig(sky_config=SKY_CONFIG_PATH)
-        task = _build_sky_task(ic, "echo hello")
+        task = _build_sky_task(ic, "echo hello", "test-cluster")
 
         # Should have called Task.from_yaml with a temp file
         mock_sky['Task'].from_yaml.assert_called_once()
@@ -97,7 +97,7 @@ class TestBuildSkyTask:
             return original_dump(data, stream, **kwargs)
 
         with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
-            _build_sky_task(ic, "echo test")
+            _build_sky_task(ic, "echo test", "test-cluster")
 
         assert len(written_configs) == 1
         sky_config = written_configs[0]
@@ -117,7 +117,7 @@ class TestBuildSkyTask:
             return original_dump(data, stream, **kwargs)
 
         with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
-            _build_sky_task(ic, "echo test")
+            _build_sky_task(ic, "echo test", "test-cluster")
 
         sky_config = written_configs[0]
         assert 'envs' not in sky_config or 'GIT_COMMIT' not in sky_config.get('envs', {})
@@ -136,7 +136,7 @@ class TestBuildSkyTask:
             return original_dump(data, stream, **kwargs)
 
         with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
-            _build_sky_task(ic, "echo injected")
+            _build_sky_task(ic, "echo injected", "test-cluster")
 
         sky_config = written_configs[0]
         assert "echo injected" in sky_config['run']
@@ -157,7 +157,7 @@ class TestBuildSkyTask:
             return original_dump(data, stream, **kwargs)
 
         with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
-            _build_sky_task(ic, "echo test")
+            _build_sky_task(ic, "echo test", "test-cluster")
 
         sky_config = written_configs[0]
         assert sky_config['workdir'] == mock_git_info['repo_root']
@@ -167,7 +167,7 @@ class TestBuildSkyTask:
         ic = InstanceConfig(sky_config=None)
 
         with patch.dict(os.environ, {'SKY_PATH': SKY_CONFIG_PATH}):
-            task = _build_sky_task(ic, "echo test")
+            task = _build_sky_task(ic, "echo test", "test-cluster")
 
         mock_sky['Task'].from_yaml.assert_called_once()
 
@@ -179,7 +179,7 @@ class TestBuildSkyTask:
             # Remove SKY_PATH if present
             os.environ.pop('SKY_PATH', None)
             with pytest.raises(RuntimeError, match="No sky_config specified"):
-                _build_sky_task(ic, "echo test")
+                _build_sky_task(ic, "echo test", "test-cluster")
 
     def test_build_sky_task_applies_patch(self, mock_sky, mock_git_info, tmp_path):
         """Patch is applied to sky config."""
@@ -199,10 +199,70 @@ class TestBuildSkyTask:
             return original_dump(data, stream, **kwargs)
 
         with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
-            _build_sky_task(ic, "echo test")
+            _build_sky_task(ic, "echo test", "test-cluster")
 
         sky_config = written_configs[0]
         assert sky_config['resources']['accelerators'] == "A100:1"
+
+
+class TestVastFilters:
+    @staticmethod
+    def _build_capturing(ic, cluster_name, home):
+        import yaml
+
+        written_configs = []
+        original_dump = yaml.dump
+
+        def capture_dump(data, stream, **kwargs):
+            written_configs.append(data)
+            return original_dump(data, stream, **kwargs)
+
+        with patch.dict(os.environ, {'HOME': str(home)}):
+            with patch('research_scaffold.remote_execution.yaml.dump', side_effect=capture_dump):
+                _build_sky_task(ic, "echo test", cluster_name)
+
+        return written_configs[0]
+
+    def test_vast_filters_written_and_stripped(self, mock_sky, mock_git_info, tmp_path):
+        """vast_filters is removed from the task YAML and written to the registry."""
+        import yaml
+
+        patch_file = tmp_path / "patch.yaml"
+        patch_file.write_text(yaml.dump({"vast_filters": "cuda_max_good>=13.0 gpu_ram>=130"}))
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, patch=str(patch_file))
+
+        sky_config = self._build_capturing(ic, "my-run", tmp_path)
+
+        assert 'vast_filters' not in sky_config
+        registry = tmp_path / ".sky" / "vast_filters" / "my-run"
+        assert registry.read_text() == "cuda_max_good>=13.0 gpu_ram>=130"
+
+    def test_patch_overrides_sky_config_filters(self, mock_sky, mock_git_info, tmp_path):
+        """A patch's vast_filters replaces the value from the shared sky config."""
+        import yaml
+
+        base = tmp_path / "sky.yaml"
+        base.write_text(yaml.dump({"run": "echo base", "vast_filters": "gpu_ram>=40"}))
+        patch_file = tmp_path / "patch.yaml"
+        patch_file.write_text(yaml.dump({"vast_filters": "gpu_ram>=130"}))
+        ic = InstanceConfig(sky_config=str(base), patch=str(patch_file))
+
+        self._build_capturing(ic, "my-run", tmp_path)
+
+        assert (tmp_path / ".sky" / "vast_filters" / "my-run").read_text() == "gpu_ram>=130"
+
+    def test_empty_vast_filters_writes_nothing(self, mock_sky, mock_git_info, tmp_path):
+        """An empty string is treated like an absent key."""
+        import yaml
+
+        patch_file = tmp_path / "patch.yaml"
+        patch_file.write_text(yaml.dump({"vast_filters": ""}))
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, patch=str(patch_file))
+
+        sky_config = self._build_capturing(ic, "my-run", tmp_path)
+
+        assert 'vast_filters' not in sky_config
+        assert not (tmp_path / ".sky").exists()
 
 
 # --- launch_remote_job tests ---

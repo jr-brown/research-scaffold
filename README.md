@@ -32,6 +32,8 @@ instance:
   managed: true                          # optional: fire-and-forget via SkyPilot managed jobs
 ```
 
+A sky config (or an `instance.patch`) may also set `vast_filters` — a raw Vast offer-query fragment such as `"cuda_max_good>=13.0 gpu_ram>=130"`. It is not a SkyPilot field: the scaffold strips it from the task YAML and writes it to `~/.sky/vast_filters/<cluster_name>` for provisioning-side tooling to consume.
+
 If `git_commit` is specified, the remote checks out that exact commit via a `GIT_COMMIT` environment variable injected into the SkyPilot task. If omitted, the remote stays on its current branch (allowing pushes).
 
 **Managed jobs** (`managed: true`) use SkyPilot's jobs controller for fire-and-forget execution with automatic teardown. Standard jobs (`managed: false`, default) block until the cluster is UP. Use managed jobs when submitting many experiments at once via meta-configs.

@@ -1,0 +1,26 @@
+# Live-fire test of the vast_filters registry write.
+#
+# Launches a real Vast instance. The scaffold pops vast_filters out of the task
+# YAML (SkyPilot would reject it) and writes it to ~/.sky/vast_filters/<cluster_name>.
+#
+# Run from example/ with:
+#   uv run python main.py -c remote_test/test_vast_filters.yaml
+#
+# Then check:
+#   cat ~/.sky/vast_filters/vast_filters_test_<timestamp>
+#   uv run sky status
+
+name: "vast_filters_test"
+time_stamp_name: true
+function_name: "example_simple"
+log_file_path: "outputs/RUN_NAME/output.log"
+function_kwargs:
+  param_a: "vast_filters_live_test"
+  param_b: 1
+instance:
+  sky_config: "example/sky_config.yaml"
+  patch:
+    vast_filters: "cuda_max_good>=12.8"
+    resources:
+      accelerators: "RTX3090:1"
+      disk_size: 50

@@ -154,6 +154,25 @@ instance:
   managed: true                    # Optional: use SkyPilot managed jobs (fire-and-forget)
 ```
 
+#### `vast_filters`
+
+`vast_filters` is a sky-config key (not a SkyPilot field, and not part of `instance`): a raw
+Vast offer-query fragment. The scaffold strips it from the task YAML — SkyPilot's schema would
+reject the unknown key — and writes it verbatim to `~/.sky/vast_filters/<cluster_name>`, where
+provisioning-side tooling picks it up. The string is opaque to the scaffold: no parsing, no
+validation. An empty string is treated as unset.
+
+Since the fragment narrows the offer pool, an over-restrictive one surfaces as a provisioning
+failure (`Failed to acquire resources`), not as a scaffold error.
+
+```yaml
+# shared sky_config.yaml
+vast_filters: "cuda_max_good>=13.0 gpu_ram>=40"
+
+# per-experiment instance.patch — overrides just this key via the usual merge
+vast_filters: "cuda_max_good>=13.0 gpu_ram>=130"
+```
+
 #### Standard vs Managed Jobs
 
 **Standard** (`managed: false`, default): Calls `sky.launch()`, blocks until the cluster is UP, then streams logs. Good for interactive use where you want to wait for results.

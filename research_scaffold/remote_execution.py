@@ -436,15 +436,18 @@ def get_existing_cluster(cluster_name: str) -> Optional[dict]:
 def _build_sky_task(
     instance_config: InstanceConfig,
     run_command: str,
+    cluster_name: str,
 ):
     """Build a SkyPilot Task from instance config and a run command.
 
     Handles sky config loading, patch application, workdir setting,
-    GIT_COMMIT env var injection, and run command injection.
+    GIT_COMMIT env var injection, run command injection, and stripping the
+    non-SkyPilot vast_filters key out to its registry file.
 
     Args:
         instance_config: Instance configuration specifying sky_config and patches
         run_command: The command to inject into the task's run block
+        cluster_name: Resolved cluster/job name, used as the vast_filters registry filename
 
     Returns:
         A configured sky.Task ready to launch
@@ -472,6 +475,17 @@ def _build_sky_task(
         log.info("Applying Sky config patch")
         patch_dict = load_config_dict(instance_config.patch)
         sky_config = recursive_dict_update(sky_config, patch_dict, assert_type_match=False)
+
+    # Not a SkyPilot field: an opaque Vast offer-query fragment handed to provisioning-side
+    # tooling via a registry file. Must be popped either way or SkyPilot's schema rejects it.
+    vast_filters = sky_config.pop('vast_filters', None)
+    if vast_filters:
+        filters_dir = os.path.expanduser('~/.sky/vast_filters')
+        os.makedirs(filters_dir, exist_ok=True)
+        filters_path = os.path.join(filters_dir, cluster_name)
+        with open(filters_path, 'w') as f:
+            f.write(vast_filters)
+        log.info(f"Wrote vast filters to {filters_path}: {vast_filters}")
 
     sky_config['workdir'] = repo_root
 
@@ -556,7 +570,7 @@ def launch_remote_job(
         repo_root, _, _ = get_git_info()
         os.chdir(repo_root)
 
-        task = _build_sky_task(instance_config, run_command)
+        task = _build_sky_task(instance_config, run_command, cluster_name)
 
         log.info(f"Cluster name: {cluster_name}")
         log.info("Launching remote job...")
@@ -616,7 +630,7 @@ def launch_managed_job(
         repo_root, _, _ = get_git_info()
         os.chdir(repo_root)
 
-        task = _build_sky_task(instance_config, run_command)
+        task = _build_sky_task(instance_config, run_command, managed_job_name)
 
         log.info(f"Managed job name: {managed_job_name}")
         log.info("Launching managed job...")
