@@ -22,6 +22,12 @@ log = get_logger(__name__)
 # still autodowns this many minutes after the job finishes.
 SYNC_AUTOSTOP_MINUTES = 30
 
+# How many times the sync watcher re-tails a dropped log stream before giving up
+# and how long it waits between attempts. Giving up only stops the watching; the
+# cluster is never torn down without a confirmed terminal job status.
+MAX_SYNC_RETAILS = 60
+SYNC_RETAIL_BACKOFF_SECONDS = 30
+
 
 def sanitize_cluster_name(name: str) -> str:
     """Coerce a name into SkyPilot's CLUSTER_NAME_VALID_REGEX.
@@ -203,25 +209,74 @@ def start_sync_back(
     script = f'''
 import os
 import subprocess
+import time
 import traceback
 import sky
 
+CLUSTER = {cluster_name!r}
+PAIRS = {pairs!r}
+MAX_RETAILS = {MAX_SYNC_RETAILS}
+RETAIL_BACKOFF_S = {SYNC_RETAIL_BACKOFF_SECONDS}
+
+
+def job_finished(f):
+    """True only on a confirmed terminal status.
+
+    A failed call, an empty result, or a None state all mean "could not
+    determine", which must never be read as "finished" -- job_status hiccups
+    for the same reason the log stream drops, and treating unknown as terminal
+    tears down a cluster whose job is still running.
+    """
+    try:
+        statuses = sky.get(sky.job_status(CLUSTER, job_ids=None))
+    except Exception as e:
+        f.write(f"Job status check failed ({{e}}); assuming still running\\n")
+        f.flush()
+        return False
+    status = next(iter(statuses.values()), None) if statuses else None
+    if status is None:
+        f.write("Job status unknown; assuming still running\\n")
+        f.flush()
+        return False
+    return status.is_terminal()
+
+
 with open({sync_log_path!r}, "w") as f:
     try:
-        # Blocks until the remote job exits
-        sky.tail_logs({cluster_name!r}, job_id=None, follow=True, output_stream=f)
-        for remote, local in {pairs!r}:
+        # tail_logs returns when the remote job exits -- but it also returns
+        # normally, with no exception, when the stream drops under API-server
+        # load. Only a confirmed terminal status may end the watch.
+        finished = False
+        for _ in range(MAX_RETAILS):
+            sky.tail_logs(CLUSTER, job_id=None, follow=True, output_stream=f)
+            if job_finished(f):
+                finished = True
+                break
+            f.write(f"Log stream dropped, job still running; re-tailing in {{RETAIL_BACKOFF_S}}s\\n")
+            f.flush()
+            # Back off: when the API server is the thing struggling, an immediate
+            # re-tail can return instantly and burn the whole budget in seconds.
+            time.sleep(RETAIL_BACKOFF_S)
+
+        for remote, local in PAIRS:
             os.makedirs(local, exist_ok=True)
             subprocess.run(
-                ["rsync", "-az", {cluster_name!r} + ":" + remote + "/", local + "/"],
+                ["rsync", "-az", CLUSTER + ":" + remote + "/", local + "/"],
                 check=True, stdout=f, stderr=f,
             )
             f.write(f"Synced {{remote}} -> {{local}}\\n")
             f.flush()
-        f.write("Sync complete, tearing down cluster\\n")
-        f.flush()
-        sky.get(sky.down({cluster_name!r}))
-        f.write("Cluster torn down\\n")
+
+        if finished:
+            f.write("Sync complete, tearing down cluster\\n")
+            f.flush()
+            sky.get(sky.down(CLUSTER))
+            f.write("Cluster torn down\\n")
+        else:
+            f.write(
+                "Job never confirmed finished; synced what exists and leaving the "
+                "cluster up. Autostop reclaims it once it is genuinely idle.\\n"
+            )
         f.flush()
     except Exception as e:
         f.write(f"\\n\\n=== Sync-back error ===\\n{{e}}\\n")

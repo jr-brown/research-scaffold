@@ -548,6 +548,108 @@ class TestSyncBack:
         script = mock_popen.call_args[0][0][2]
         assert "sky_workdir/example/outputs" in script
 
+    # --- watcher behaviour: the generated script is executed against a stub sky ---
+
+    @staticmethod
+    def _run_watcher(tmp_path, statuses, tail_raises_after=None):
+        """Execute the generated watcher script with a fake sky module.
+
+        `statuses` is one entry per job_finished() call: a dict to return, or an
+        Exception instance to raise. Returns (sky_stub, sync log text).
+        """
+        import subprocess as real_subprocess
+
+        log_path = tmp_path / "sync.log"
+        real_popen_cls = real_subprocess.Popen
+        with patch('research_scaffold.remote_execution.subprocess.Popen') as mock_popen:
+            mock_popen.return_value = MagicMock(spec=real_popen_cls)
+            start_sync_back("my-cluster", ["outputs"], str(tmp_path), "", str(log_path))
+        script = mock_popen.call_args[0][0][2]
+
+        sky_stub = MagicMock()
+        sky_stub.tail_logs.return_value = None
+        remaining = list(statuses)
+
+        def job_status(cluster_name, job_ids=None):
+            item = remaining.pop(0) if remaining else {}
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        sky_stub.job_status.side_effect = job_status
+        sky_stub.get.side_effect = lambda x: x
+
+        with patch.dict('sys.modules', {'sky': sky_stub}), \
+                patch('time.sleep'), \
+                patch('subprocess.run') as mock_run, \
+                patch('os.makedirs'):
+            mock_run.return_value = MagicMock(returncode=0)
+            exec(compile(script, '<sync-script>', 'exec'), {'__name__': '__main__'})
+
+        sky_stub.rsync_calls = mock_run.call_args_list
+        return sky_stub, log_path.read_text()
+
+    def test_unknown_status_never_tears_down(self, tmp_path):
+        """A None state means 'could not determine', not 'finished'.
+
+        This is the incident: the log stream and the status check fail together
+        under API-server load, and a healthy mid-training cluster gets destroyed.
+        """
+        from sky import JobStatus
+
+        sky_stub, log = self._run_watcher(tmp_path, statuses=[{None: None}] * 60)
+
+        sky_stub.down.assert_not_called()
+        assert "tearing down" not in log
+        assert "Job status unknown" in log
+        assert sky_stub.rsync_calls, "results should still be synced"
+
+    def test_empty_status_dict_never_tears_down(self, tmp_path):
+        sky_stub, log = self._run_watcher(tmp_path, statuses=[{}] * 60)
+
+        sky_stub.down.assert_not_called()
+        assert "tearing down" not in log
+
+    def test_status_check_raising_never_tears_down(self, tmp_path):
+        sky_stub, log = self._run_watcher(
+            tmp_path, statuses=[RuntimeError("api server unreachable")] * 60
+        )
+
+        sky_stub.down.assert_not_called()
+        assert "Job status check failed" in log
+
+    def test_confirmed_terminal_status_tears_down(self, tmp_path):
+        from sky import JobStatus
+
+        sky_stub, log = self._run_watcher(tmp_path, statuses=[{1: JobStatus.SUCCEEDED}])
+
+        sky_stub.down.assert_called_once_with("my-cluster")
+        assert "Cluster torn down" in log
+
+    def test_resumes_tailing_then_tears_down_once_confirmed(self, tmp_path):
+        """A dropped stream mid-job must re-tail, and still tear down when the job ends."""
+        from sky import JobStatus
+
+        sky_stub, log = self._run_watcher(
+            tmp_path,
+            statuses=[{1: JobStatus.RUNNING}, {None: None}, {1: JobStatus.SUCCEEDED}],
+        )
+
+        assert sky_stub.tail_logs.call_count == 3
+        assert log.count("re-tailing") == 2
+        sky_stub.down.assert_called_once_with("my-cluster")
+
+    def test_retail_budget_exhaustion_syncs_without_teardown(self, tmp_path):
+        """Falling out of the retry loop must not become the same bug by the back door."""
+        from sky import JobStatus
+
+        sky_stub, log = self._run_watcher(tmp_path, statuses=[{1: JobStatus.RUNNING}] * 60)
+
+        assert sky_stub.tail_logs.call_count == 60
+        sky_stub.down.assert_not_called()
+        assert sky_stub.rsync_calls, "partial results should still come back"
+        assert "leaving the" in log
+
     def test_sync_launches_with_autostop_and_starts_watcher(self, mock_sky, mock_git_info):
         ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, sync=["outputs/RUN_NAME"])
 

@@ -173,6 +173,26 @@ vast_filters: "cuda_max_good>=13.0 gpu_ram>=40"
 vast_filters: "cuda_max_good>=13.0 gpu_ram>=130"
 ```
 
+#### `sync` and the Sync-Back Watcher
+
+`instance.sync` lists folders to rsync back when the job finishes. A watcher process per
+launch tails the job log, rsyncs those folders, then tears the cluster down.
+
+`sky.tail_logs` returns when the job exits — but it also returns normally, with no exception,
+when the stream drops under API-server load. So the watcher **only tears down after a
+confirmed terminal job status**. A status check that fails, comes back empty, or yields a
+`None` state means "could not determine", never "finished": the watcher backs off and
+re-tails. If it runs out of re-tails it still syncs whatever exists, but leaves the cluster
+up for `SYNC_AUTOSTOP_MINUTES` autostop to reclaim once it is genuinely idle.
+
+This matters because one API-server hiccup hits every watcher that is mid-drop at the same
+moment, so a naive "stream ended → done" rule scales its damage with the number of
+concurrent runs.
+
+Note the watcher script is baked into `python -c` at launch time, so **already-running
+watchers keep the code they started with** — after upgrading, restart long-lived watchers
+to pick up changes.
+
 #### Standard vs Managed Jobs
 
 **Standard** (`managed: false`, default): Calls `sky.launch()`, blocks until the cluster is UP, then streams logs. Good for interactive use where you want to wait for results.
