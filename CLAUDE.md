@@ -240,6 +240,13 @@ run: |
   # Experiment command is injected here by remote_execution.py
 ```
 
+## Releasing
+
+Every change to the public API (see README "Versioning") gets a line under `## Unreleased` in
+`CHANGELOG.md`. To release: run `uv run pytest`, bump `version` in `pyproject.toml`, rename
+`Unreleased` to the version and date, commit, then `git tag vX.Y.Z && git push --tags`. Tags are
+immutable; never move one.
+
 ## Testing
 
 Tests use pytest with mocked wandb. Test fixtures in `tests/conftest.py` mock wandb.init, wandb.sweep, and wandb.agent.

@@ -13,6 +13,16 @@ uv run python main.py -s sweep.yaml         # wandb hyperparameter sweep
 
 The `-c` flag accepts config files, inline dicts, or config paths. You can also pass multiple configs that get composed together.
 
+## Versioning and Installing
+
+Releases are git tags (`v0.1.0`, ...). Pin downstream projects to a tag:
+
+```toml
+research-scaffold = { git = "https://github.com/jr-brown/research-scaffold.git", tag = "v0.1.0" }
+```
+
+Pre-1.0, the minor version bumps for any change to the public API and the patch version for fixes. The public API is what `research_scaffold/__init__.py` exports, the config/meta-config/sweep YAML schema (including `RUN_NAME`/`RUN_GROUP`/`SWEEP_NAME` placeholders and the `<replace>` marker), the `function_map` contract, and the `instance` block. Everything else is internal. See `CHANGELOG.md` for changes.
+
 ## Features
 
 **Config composition** - Layer multiple configs or run grid searches over parameter combinations

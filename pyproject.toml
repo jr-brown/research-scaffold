@@ -1,6 +1,6 @@
 [project]
 name = "research-scaffold"
-version = "0.1"
+version = "0.1.0"
 description = "Jason Brown's research scaffold"
 authors = [
     { name = "Jason Brown and Lennie Wells", email = "jasonrbrown135@gmail.com" },
