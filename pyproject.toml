@@ -1,6 +1,6 @@
 [project]
 name = "research-scaffold"
-version = "0.1.0"
+version = "0.2.0"
 description = "Jason Brown's research scaffold"
 authors = [
     { name = "Jason Brown and Lennie Wells", email = "jasonrbrown135@gmail.com" },
@@ -12,12 +12,13 @@ requires-python = ">=3.11"
 dependencies = [
     "beartype",
     "wandb",
-    "skypilot[vast]",
     "pyyaml",
     "tqdm",
     "GitPython",
-    "vastai-sdk>=0.1.12",
 ]
+
+[project.optional-dependencies]
+remote = ["skypilot[vast]", "vastai-sdk>=0.1.12"]
 
 [project.urls]
 Homepage = "https://github.com/jr-brown/research-scaffold"

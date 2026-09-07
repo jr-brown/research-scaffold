@@ -64,7 +64,6 @@ from .util import (
 )
 from .file_io import load, save
 
-from .remote_execution import execute_config_remotely, execute_sweep_remotely
 
 
 log = get_logger(__name__)
@@ -267,6 +266,7 @@ def execute_from_config(
         config.time_stamp_name = False
         config.wandb_group = group
         config.time_stamp_group = False
+        from .remote_execution import execute_config_remotely
         execute_config_remotely(instance, config, resolved_names)
         return
 
@@ -559,6 +559,7 @@ def remote_execute_sweep_from_dict(
     )
 
     # Execute the sweep remotely
+    from .remote_execution import execute_sweep_remotely
     execute_sweep_remotely(
         instance_config=instance,
         sweep_dict=sweep_dict,

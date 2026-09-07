@@ -4,6 +4,10 @@ One line per user-visible change: config keys added or renamed, behaviour change
 
 ## Unreleased
 
+## 0.2.0 - 2026-09-07
+
+- SkyPilot and vastai-sdk are no longer installed by default. Remote execution (`instance` block) now needs the `remote` extra: `research-scaffold[remote]`.
+
 ## 0.1.0 - 2026-09-03
 
 First tagged release. Recent notable features:

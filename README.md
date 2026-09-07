@@ -6,6 +6,7 @@ Run experiments from YAML configs with support for composition, sweeps, and remo
 
 ```bash
 uv sync                                      # install all deps (including dev)
+uv sync --extra remote                       # also SkyPilot, for remote execution
 uv run python main.py -c config.yaml        # single experiment
 uv run python main.py -m meta_config.yaml   # multiple experiments, composition, grid search
 uv run python main.py -s sweep.yaml         # wandb hyperparameter sweep
@@ -18,7 +19,9 @@ The `-c` flag accepts config files, inline dicts, or config paths. You can also 
 Releases are git tags (`v0.1.0`, ...). Pin downstream projects to a tag:
 
 ```toml
-research-scaffold = { git = "https://github.com/jr-brown/research-scaffold.git", tag = "v0.1.0" }
+research-scaffold = { git = "https://github.com/jr-brown/research-scaffold.git", tag = "v0.2.0" }
+# with remote execution:
+research-scaffold = { git = "https://github.com/jr-brown/research-scaffold.git", tag = "v0.2.0", extras = ["remote"] }
 ```
 
 Pre-1.0, the minor version bumps for any change to the public API and the patch version for fixes. The public API is what `research_scaffold/__init__.py` exports, the config/meta-config/sweep YAML schema (including `RUN_NAME`/`RUN_GROUP`/`SWEEP_NAME` placeholders and the `<replace>` marker), the `function_map` contract, and the `instance` block. Everything else is internal. See `CHANGELOG.md` for changes.

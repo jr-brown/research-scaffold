@@ -6,6 +6,8 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 
+pytest.importorskip("sky")
+
 from sky.utils.common_utils import check_cluster_name_is_valid
 
 from research_scaffold.types import InstanceConfig, Config
