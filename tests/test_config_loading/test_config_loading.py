@@ -122,3 +122,18 @@ def test_merging_is_still_the_default():
     ])
 
     assert config.function_kwargs["block"] == {"a": 1, "b": 2}
+
+
+def test_double_slash_paths_resolve_against_config_root(tmp_path, monkeypatch):
+    from research_scaffold.util import load_config_dict
+
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "a.yaml").write_text("x: 1\n")
+
+    monkeypatch.setenv("RESEARCH_SCAFFOLD_CONFIG_ROOT", str(tmp_path))
+    assert load_config_dict("//configs/a.yaml") == {"x": 1}
+
+    monkeypatch.delenv("RESEARCH_SCAFFOLD_CONFIG_ROOT")
+    monkeypatch.chdir(tmp_path)
+    assert load_config_dict("//configs/a.yaml") == {"x": 1}
+    assert load_config_dict("configs/a.yaml") == {"x": 1}

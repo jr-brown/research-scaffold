@@ -4,6 +4,8 @@ One line per user-visible change: config keys added or renamed, behaviour change
 
 ## Unreleased
 
+- Config paths starting with `//` resolve against `RESEARCH_SCAFFOLD_CONFIG_ROOT` (or the working directory if unset) instead of the working directory
+
 - `output_dir` config field: when set, `log_file_path` (default `logs.txt`) and `save_config_path` (default `config.yaml`) resolve relative to it
 
 ## 0.2.0 - 2026-09-07

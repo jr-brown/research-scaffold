@@ -113,6 +113,13 @@ work; functions defined *inside* another function and lambdas do not, and fail i
 launch with `Can't pickle local object`. Each worker also re-imports the caller's `main.py`, so it
 needs an `if __name__ == "__main__":` guard and module-level work runs once per config.
 
+### Root-Anchored Config Paths
+
+A config path starting with `//` resolves against `RESEARCH_SCAFFOLD_CONFIG_ROOT`, or the
+working directory if that is unset. Ordinary relative paths are unchanged (working directory,
+plus the meta config's `folder` if set). Set the variable once (e.g. in `.envrc`) and meta
+configs reference shared files as `//configs/env.yaml` from any directory.
+
 ### Placeholders
 - `RUN_NAME`: Replaced with experiment name (timestamped if `time_stamp_name: true`)
 - `RUN_GROUP`: Replaced with wandb group (timestamped if `time_stamp_group: true`)

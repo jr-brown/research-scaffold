@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Any
 from collections.abc import Callable
 from datetime import datetime
+import os
 import yaml
 
 try:
@@ -191,6 +192,9 @@ def load_config_dict(config_path_or_dict: dict | str) -> dict[str, Any]:
     if isinstance(config_path_or_dict, dict):
         return config_path_or_dict
     elif isinstance(config_path_or_dict, str):
+        if config_path_or_dict.startswith("//"):
+            root = os.environ.get("RESEARCH_SCAFFOLD_CONFIG_ROOT", os.getcwd())
+            config_path_or_dict = os.path.join(root, config_path_or_dict[2:])
         with open(config_path_or_dict, 'r') as f:
             return yaml.safe_load(f)
     else:
