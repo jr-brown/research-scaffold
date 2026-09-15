@@ -5,6 +5,7 @@ Type definitions for research-scaffold.
 from typing import Any, Optional, Union
 from collections.abc import Callable
 from dataclasses import dataclass
+from os import path
 
 
 ### Type definitions
@@ -40,6 +41,7 @@ class Config:
     time_stamp_group: Optional[bool] = False
     function_kwargs: Optional[StringKeyDict] = None
     function_args: Optional[list] = None
+    output_dir: Optional[str] = None  # If set, log_file_path and save_config_path are relative to it
     log_file_path: Optional[str] = None
     save_config_path: Optional[str] = None
     wandb_project: Optional[str] = None
@@ -47,6 +49,11 @@ class Config:
     wandb_group: Optional[str] = None
     wandb_tags: Optional[list[str]] = None
     instance: Optional["InstanceConfig"] = None
+
+    def __post_init__(self):
+        if self.output_dir is not None:
+            self.log_file_path = path.join(self.output_dir, self.log_file_path or "logs.txt")
+            self.save_config_path = path.join(self.output_dir, self.save_config_path or "config.yaml")
 
     @property
     def d(self):

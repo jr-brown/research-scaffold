@@ -4,6 +4,8 @@ One line per user-visible change: config keys added or renamed, behaviour change
 
 ## Unreleased
 
+- `output_dir` config field: when set, `log_file_path` (default `logs.txt`) and `save_config_path` (default `config.yaml`) resolve relative to it
+
 ## 0.2.0 - 2026-09-07
 
 - SkyPilot and vastai-sdk are no longer installed by default. Remote execution (`instance` block) now needs the `remote` extra: `research-scaffold[remote]`.

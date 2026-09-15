@@ -127,6 +127,16 @@ time_stamp_group: true
 log_file_path: "outputs/RUN_GROUP/output.log"  # → outputs/my_experiment_2025-01-15_14-30-22/output.log
 ```
 
+### Output Directory
+
+`output_dir` sets one folder for a run's scaffold outputs. `log_file_path` (default `logs.txt`)
+and `save_config_path` (default `config.yaml`) are then relative to it:
+```yaml
+output_dir: "results/RUN_GROUP/RUN_NAME"   # → results/.../logs.txt and results/.../config.yaml
+log_file_path: "train.log"                 # optional override → results/.../train.log
+```
+Without `output_dir`, both paths are used as given and default to unset.
+
 ### Function Map Pattern
 
 User code registers functions by name for configs to reference:

@@ -183,3 +183,19 @@ def test_save_config_path_with_run_name_substitution(mock_git, tmp_path):
     finally:
         os.chdir(old_cwd)
 
+
+
+def test_output_dir_defaults_and_relative_paths():
+    from research_scaffold.types import Config
+
+    c = Config(name="x", function_name="f", output_dir="results/RUN_NAME")
+    assert c.log_file_path == "results/RUN_NAME/logs.txt"
+    assert c.save_config_path == "results/RUN_NAME/config.yaml"
+
+    c = Config(name="x", function_name="f", output_dir="results", log_file_path="sub/new.log")
+    assert c.log_file_path == "results/sub/new.log"
+    assert c.save_config_path == "results/config.yaml"
+
+    c = Config(name="x", function_name="f", log_file_path="a.log")
+    assert c.log_file_path == "a.log"
+    assert c.save_config_path is None
