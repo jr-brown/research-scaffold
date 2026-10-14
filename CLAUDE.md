@@ -169,7 +169,18 @@ instance:
   git_commit: "abc123"             # Optional: pin remote to a specific git commit
   retry_until_up: true             # Optional: retry provisioning until cluster is up
   managed: true                    # Optional: use SkyPilot managed jobs (fire-and-forget)
+  keep_alive_minutes: 60           # Optional: reusable named cluster (see below)
 ```
+
+#### Keep-Alive Clusters
+
+`keep_alive_minutes: N` together with a fixed `name` makes one device you can target for short jobs.
+If a cluster of that name is UP, the job goes to it via `sky.exec`: workdir synced, no provisioning,
+no `setup:`. Otherwise (missing, or not UP) it is launched with `sky.launch(down=True,
+idle_minutes_to_autostop=N)`, so it is torn down only after N idle minutes rather than right after
+the job. The `sync` watcher and log streaming follow the submitted job id (several jobs can share
+the cluster) and never tear a keep-alive cluster down. Without `keep_alive_minutes`, an existing
+cluster of that name still makes the config skip.
 
 #### `vast_filters`
 

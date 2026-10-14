@@ -28,6 +28,7 @@ class InstanceConfig:
     git_commit: Optional[str] = None  # Pin remote to a specific git commit (defaults to current HEAD)
     retry_until_up: bool = False  # Retry provisioning until the cluster is up
     managed: bool = False  # Use SkyPilot managed jobs (sky.jobs.launch) instead of sky.launch
+    keep_alive_minutes: Optional[int] = None  # Reusable cluster: jobs run on an UP cluster of this name via sky.exec (no provisioning/setup); a new one is torn down only after this many idle minutes
 
 
 @dataclass

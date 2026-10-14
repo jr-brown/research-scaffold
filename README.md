@@ -43,11 +43,14 @@ instance:
     - "outputs/**"
   git_commit: "abc123def"                # optional: pin to a specific commit (detaches HEAD)
   managed: true                          # optional: fire-and-forget via SkyPilot managed jobs
+  keep_alive_minutes: 60                 # optional: reusable cluster (see below)
 ```
 
 A sky config (or an `instance.patch`) may also set `vast_filters` — a raw Vast offer-query fragment such as `"cuda_max_good>=13.0 gpu_ram>=130"`. It is not a SkyPilot field: the scaffold strips it from the task YAML and writes it to `~/.sky/vast_filters/<cluster_name>` for provisioning-side tooling to consume.
 
 If `git_commit` is specified, the remote checks out that exact commit via a `GIT_COMMIT` environment variable injected into the SkyPilot task. If omitted, the remote stays on its current branch (allowing pushes).
+
+**Keep-alive clusters** (`keep_alive_minutes: N` with a fixed `name`) give you one device to target for short jobs: if a cluster of that name is UP, the job is submitted to it with `sky.exec` (no provisioning, no setup); otherwise one is launched and torn down only after N idle minutes. Without `keep_alive_minutes`, an existing cluster of that name makes the config skip.
 
 **Managed jobs** (`managed: true`) use SkyPilot's jobs controller for fire-and-forget execution with automatic teardown. Standard jobs (`managed: false`, default) block until the cluster is UP. Use managed jobs when submitting many experiments at once via meta-configs.
 

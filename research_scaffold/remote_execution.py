@@ -135,7 +135,7 @@ fi
 """
 
 
-def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) -> subprocess.Popen:
+def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str, job_id: Optional[int] = None) -> subprocess.Popen:
     """Stream logs from a SkyPilot job to a local file using the SDK.
     
     Chains two SDK calls:
@@ -146,6 +146,7 @@ def start_log_streaming(request_id: str, cluster_name: str, log_file_path: str) 
         request_id: The request ID from sky.launch()
         cluster_name: The cluster name for tailing job logs
         log_file_path: Local path to write logs to
+        job_id: The job to tail (None = the cluster's latest job)
         
     Returns:
         The background process
@@ -171,7 +172,7 @@ with open("{log_file_path}", "w") as f:
         f.write("\\n--- Job output ---\\n")
         f.flush()
         # Stream actual job logs
-        sky.tail_logs("{cluster_name}", job_id=None, follow=True, output_stream=f)
+        sky.tail_logs("{cluster_name}", job_id={job_id!r}, follow=True, output_stream=f)
     except Exception as e:
         f.write(f"\\n\\n=== Log streaming error ===\\n{{e}}\\n")
         f.write(traceback.format_exc())
@@ -196,6 +197,8 @@ def start_sync_back(
     local_cwd: str,
     rel_cwd: str,
     sync_log_path: str,
+    job_id: Optional[int] = None,
+    tear_down: bool = True,
 ) -> subprocess.Popen:
     import sys
 
@@ -214,6 +217,8 @@ import traceback
 import sky
 
 CLUSTER = {cluster_name!r}
+JOB_ID = {job_id!r}
+TEAR_DOWN = {tear_down!r}
 PAIRS = {pairs!r}
 MAX_RETAILS = {MAX_SYNC_RETAILS}
 RETAIL_BACKOFF_S = {SYNC_RETAIL_BACKOFF_SECONDS}
@@ -228,7 +233,7 @@ def job_finished(f):
     tears down a cluster whose job is still running.
     """
     try:
-        statuses = sky.get(sky.job_status(CLUSTER, job_ids=None))
+        statuses = sky.get(sky.job_status(CLUSTER, job_ids=None if JOB_ID is None else [JOB_ID]))
     except Exception as e:
         f.write(f"Job status check failed ({{e}}); assuming still running\\n")
         f.flush()
@@ -248,7 +253,7 @@ with open({sync_log_path!r}, "w") as f:
         # load. Only a confirmed terminal status may end the watch.
         finished = False
         for _ in range(MAX_RETAILS):
-            sky.tail_logs(CLUSTER, job_id=None, follow=True, output_stream=f)
+            sky.tail_logs(CLUSTER, job_id=JOB_ID, follow=True, output_stream=f)
             if job_finished(f):
                 finished = True
                 break
@@ -267,7 +272,9 @@ with open({sync_log_path!r}, "w") as f:
             f.write(f"Synced {{remote}} -> {{local}}\\n")
             f.flush()
 
-        if finished:
+        if finished and not TEAR_DOWN:
+            f.write("Sync complete; keep-alive cluster left up (autostop reclaims it once idle)\\n")
+        elif finished:
             f.write("Sync complete, tearing down cluster\\n")
             f.flush()
             sky.get(sky.down(CLUSTER))
@@ -573,19 +580,26 @@ def _build_sky_task(
     return task
 
 
+def _is_up(status) -> bool:
+    return getattr(status, "value", status) == "UP"
+
+
 def launch_remote_job(
     instance_config: InstanceConfig,
     job_name: str,
     run_command: str,
     idle_minutes_to_autostop: Optional[int] = None,
-) -> tuple[str, Optional[str], bool]:
+) -> tuple[str, Optional[str], bool, Optional[int]]:
     """Launch a remote job using SkyPilot (fire and forget).
 
     This launches the job asynchronously and returns immediately without
     waiting for the job to complete.
 
     If instance_config.name is provided and a cluster with that name already
-    exists, the function will skip launching and return the existing cluster name.
+    exists, the function skips launching and returns the existing cluster name --
+    unless instance_config.keep_alive_minutes is set: then the job is submitted to the
+    UP cluster with sky.exec (no provisioning, no setup), and a newly launched cluster
+    is torn down only after keep_alive_minutes idle minutes.
 
     Args:
         instance_config: Instance configuration specifying sky_config and patches
@@ -593,21 +607,24 @@ def launch_remote_job(
         run_command: The command to run remotely
 
     Returns:
-        Tuple of (cluster_name, request_id, was_already_running):
+        Tuple of (cluster_name, request_id, was_already_running, job_id):
         - cluster_name: The cluster name for later reference
         - request_id: The SkyPilot request ID (for log streaming), None if already running
         - was_already_running: True if cluster already existed (no new job launched)
+        - job_id: The submitted job's id on the cluster, None if not launched
 
     Raises:
         RuntimeError: If neither sky_config nor SKY_PATH environment variable is set
     """
+    keep_alive = instance_config.keep_alive_minutes
+    reuse = False
     # Determine cluster name: use custom name or generate one
     if instance_config.name:
         cluster_name = instance_config.name
 
         # Check if cluster with this name already exists
         existing = get_existing_cluster(cluster_name)
-        if existing:
+        if existing and keep_alive is None:
             status = existing['status']
             log.warning(
                 f"⏭️  NOT starting '{job_name}': a cluster named '{cluster_name}' already "
@@ -615,7 +632,8 @@ def launch_remote_job(
             )
             log.warning(f"   View logs:    sky logs {cluster_name}")
             log.warning("   Check status: sky status")
-            return cluster_name, None, True  # Already running
+            return cluster_name, None, True, None  # Already running
+        reuse = existing is not None and _is_up(existing['status'])
     else:
         cluster_name = f"c{uuid.uuid4().hex[:8]}"
 
@@ -628,28 +646,34 @@ def launch_remote_job(
         task = _build_sky_task(instance_config, run_command, cluster_name)
 
         log.info(f"Cluster name: {cluster_name}")
-        log.info("Launching remote job...")
-
-        # Launch the task - returns a request_id for async tracking
-        request_id = sky.launch(
-            task,
-            cluster_name=cluster_name,
-            down=True,  # Auto tear down after completion
-            retry_until_up=instance_config.retry_until_up,
-            idle_minutes_to_autostop=idle_minutes_to_autostop,
-        )
+        if reuse:
+            log.info("Submitting job to the existing keep-alive cluster (sky.exec, no setup)...")
+            request_id = sky.exec(task, cluster_name=cluster_name)
+        else:
+            log.info("Launching remote job...")
+            # Launch the task - returns a request_id for async tracking
+            request_id = sky.launch(
+                task,
+                cluster_name=cluster_name,
+                down=True,  # Auto tear down once idle (immediately after the job, or after keep_alive_minutes)
+                retry_until_up=instance_config.retry_until_up,
+                idle_minutes_to_autostop=keep_alive if keep_alive is not None else idle_minutes_to_autostop,
+            )
 
         log.info(f"🚀 Job '{job_name}' launched (request: {request_id})")
         log.info(f"   Cluster: {cluster_name}")
-        log.info("   Cluster will auto-terminate after job completes")
+        if keep_alive is None:
+            log.info("   Cluster will auto-terminate after job completes")
+        else:
+            log.info(f"   Keep-alive cluster: torn down after {keep_alive} idle minutes")
 
         # Wait for cluster to be fully provisioned before returning
         # This prevents double-booking GPUs when launching multiple jobs
         log.info("   Waiting for cluster to be UP...")
         job_id, handle = sky.get(request_id)  # Blocks until cluster is UP and job is submitted
-        log.info("   ✅ Cluster is UP, job submitted")
+        log.info(f"   ✅ Cluster is UP, job {job_id} submitted")
 
-        return cluster_name, str(request_id), False  # Newly launched
+        return cluster_name, str(request_id), False, job_id  # Newly launched
 
     finally:
         os.chdir(original_cwd)
@@ -836,7 +860,7 @@ def execute_config_remotely(
 
         return managed_job_name
     else:
-        cluster_name, request_id, was_already_running = launch_remote_job(
+        cluster_name, request_id, was_already_running, job_id = launch_remote_job(
             instance_config=instance_config,
             job_name=config.name,
             run_command=experiment_run_cmd,
@@ -846,11 +870,12 @@ def execute_config_remotely(
         # Start streaming logs to local file (if configured and job was actually launched)
         if local_log_file_path and request_id and not was_already_running:
             actual_log_path = _sub(local_log_file_path)
-            start_log_streaming(request_id, cluster_name, actual_log_path)
+            start_log_streaming(request_id, cluster_name, actual_log_path, job_id)
 
         if instance_config.sync and request_id and not was_already_running:
             sync_log_path = _sub(local_log_file_path) + ".sync" if local_log_file_path else os.devnull
-            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path)
+            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path,
+                            job_id=job_id, tear_down=instance_config.keep_alive_minutes is None)
 
         return cluster_name
 
@@ -951,7 +976,7 @@ def execute_sweep_remotely(
 
         return managed_job_name
     else:
-        cluster_name, request_id, was_already_running = launch_remote_job(
+        cluster_name, request_id, was_already_running, job_id = launch_remote_job(
             instance_config=instance_config,
             job_name=sweep_name,
             run_command=sweep_run_cmd,
@@ -961,10 +986,11 @@ def execute_sweep_remotely(
         # Start streaming logs to local file (if configured and job was actually launched)
         if log_file_path and request_id and not was_already_running:
             actual_log_path = _sub(log_file_path)
-            start_log_streaming(request_id, cluster_name, actual_log_path)
+            start_log_streaming(request_id, cluster_name, actual_log_path, job_id)
 
         if instance_config.sync and request_id and not was_already_running:
             sync_log_path = _sub(log_file_path) + ".sync" if log_file_path else os.devnull
-            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path)
+            start_sync_back(cluster_name, instance_config.sync, original_cwd, rel_cwd, sync_log_path,
+                            job_id=job_id, tear_down=instance_config.keep_alive_minutes is None)
 
         return cluster_name

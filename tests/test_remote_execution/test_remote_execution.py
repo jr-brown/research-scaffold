@@ -275,7 +275,7 @@ class TestLaunchRemoteJob:
         """launch_remote_job calls sky.launch() with correct args."""
         ic = InstanceConfig(sky_config=SKY_CONFIG_PATH)
 
-        cluster_name, request_id, was_running = launch_remote_job(ic, "test-job", "echo hello")
+        cluster_name, request_id, was_running, job_id = launch_remote_job(ic, "test-job", "echo hello")
 
         mock_sky['launch'].assert_called_once()
         call_kwargs = mock_sky['launch'].call_args
@@ -297,7 +297,7 @@ class TestLaunchRemoteJob:
         """Generates a uuid-based cluster name when instance_config.name is None."""
         ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name=None)
 
-        cluster_name, _, _ = launch_remote_job(ic, "test-job", "echo hello")
+        cluster_name, _, _, _ = launch_remote_job(ic, "test-job", "echo hello")
 
         assert cluster_name.startswith("c")
         assert len(cluster_name) == 9  # c + 8 hex chars
@@ -308,9 +308,64 @@ class TestLaunchRemoteJob:
         with patch('research_scaffold.remote_execution.get_existing_cluster', return_value=None):
             ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="my-cluster")
 
-            cluster_name, _, _ = launch_remote_job(ic, "test-job", "echo hello")
+            cluster_name, _, _, _ = launch_remote_job(ic, "test-job", "echo hello")
 
             assert cluster_name == "my-cluster"
+
+
+class TestKeepAlive:
+    """instance.keep_alive_minutes: a named cluster that outlives its jobs and takes new ones via sky.exec."""
+
+    def test_existing_up_cluster_gets_the_job_via_exec(self, mock_sky, mock_git_info):
+        mock_sky['sky'].exec.return_value = "req-exec-1"
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="dev", keep_alive_minutes=60)
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value={'status': 'UP'}):
+            cluster_name, request_id, was_running, job_id = launch_remote_job(ic, "test-job", "echo hello")
+
+        mock_sky['sky'].exec.assert_called_once()
+        assert mock_sky['sky'].exec.call_args.kwargs['cluster_name'] == "dev"
+        mock_sky['launch'].assert_not_called()
+        assert (cluster_name, request_id, was_running, job_id) == ("dev", "req-exec-1", False, 1)
+
+    def test_missing_cluster_launches_with_keep_alive_autostop(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="dev", keep_alive_minutes=60)
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value=None):
+            launch_remote_job(ic, "test-job", "echo hello", idle_minutes_to_autostop=SYNC_AUTOSTOP_MINUTES)
+
+        kwargs = mock_sky['launch'].call_args.kwargs
+        assert kwargs['idle_minutes_to_autostop'] == 60
+        assert kwargs['down'] is True
+        mock_sky['sky'].exec.assert_not_called()
+
+    def test_stopped_cluster_is_relaunched_not_execed(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="dev", keep_alive_minutes=60)
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value={'status': 'STOPPED'}):
+            launch_remote_job(ic, "test-job", "echo hello")
+
+        mock_sky['launch'].assert_called_once()
+        mock_sky['sky'].exec.assert_not_called()
+
+    def test_without_keep_alive_existing_cluster_is_still_skipped(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="dev")
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value={'status': 'UP'}):
+            assert launch_remote_job(ic, "test-job", "echo hello")[2] is True
+
+        mock_sky['launch'].assert_not_called()
+        mock_sky['sky'].exec.assert_not_called()
+
+    def test_sync_watcher_follows_the_job_and_keeps_the_cluster(self, mock_sky, mock_git_info):
+        ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, name="dev", keep_alive_minutes=60, sync=["outputs"])
+        config = Config(name="expt_a", function_name="train")
+
+        with patch('research_scaffold.remote_execution.get_existing_cluster', return_value=None), \
+                patch('research_scaffold.remote_execution.start_sync_back') as mock_sync:
+            execute_config_remotely(ic, config, {"name": "expt_a", "name_base": "expt_a", "group": "", "sweep_name": ""})
+
+        assert mock_sync.call_args.kwargs == {"job_id": 1, "tear_down": False}
 
 
 # --- launch_managed_job tests ---
@@ -553,7 +608,7 @@ class TestSyncBack:
     # --- watcher behaviour: the generated script is executed against a stub sky ---
 
     @staticmethod
-    def _run_watcher(tmp_path, statuses, tail_raises_after=None):
+    def _run_watcher(tmp_path, statuses, tail_raises_after=None, **sync_kwargs):
         """Execute the generated watcher script with a fake sky module.
 
         `statuses` is one entry per job_finished() call: a dict to return, or an
@@ -565,7 +620,7 @@ class TestSyncBack:
         real_popen_cls = real_subprocess.Popen
         with patch('research_scaffold.remote_execution.subprocess.Popen') as mock_popen:
             mock_popen.return_value = MagicMock(spec=real_popen_cls)
-            start_sync_back("my-cluster", ["outputs"], str(tmp_path), "", str(log_path))
+            start_sync_back("my-cluster", ["outputs"], str(tmp_path), "", str(log_path), **sync_kwargs)
         script = mock_popen.call_args[0][0][2]
 
         sky_stub = MagicMock()
@@ -651,6 +706,17 @@ class TestSyncBack:
         sky_stub.down.assert_not_called()
         assert sky_stub.rsync_calls, "partial results should still come back"
         assert "leaving the" in log
+
+    def test_keep_alive_watcher_tails_its_job_and_never_tears_down(self, tmp_path):
+        from sky import JobStatus
+
+        sky_stub, log = self._run_watcher(tmp_path, statuses=[{7: JobStatus.SUCCEEDED}], job_id=7, tear_down=False)
+
+        sky_stub.down.assert_not_called()
+        assert sky_stub.tail_logs.call_args.kwargs['job_id'] == 7
+        assert sky_stub.job_status.call_args.kwargs['job_ids'] == [7]
+        assert sky_stub.rsync_calls
+        assert "keep-alive cluster left up" in log
 
     def test_sync_launches_with_autostop_and_starts_watcher(self, mock_sky, mock_git_info):
         ic = InstanceConfig(sky_config=SKY_CONFIG_PATH, sync=["outputs/RUN_NAME"])

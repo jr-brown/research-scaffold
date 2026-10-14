@@ -4,6 +4,8 @@ One line per user-visible change: config keys added or renamed, behaviour change
 
 ## Unreleased
 
+- `instance.keep_alive_minutes`: a named cluster that is UP takes the job via `sky.exec` (no provisioning or setup) instead of skipping the config; a newly launched one is torn down only after that many idle minutes, and `sync` watchers follow their own job id and leave it up
+
 - Config paths starting with `//` resolve against `RESEARCH_SCAFFOLD_CONFIG_ROOT` (or the working directory if unset) instead of the working directory
 
 - `output_dir` config field: when set, `log_file_path` (default `logs.txt`) and `save_config_path` (default `config.yaml`) resolve relative to it
